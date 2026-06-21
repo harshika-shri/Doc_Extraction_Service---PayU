@@ -1,17 +1,14 @@
 from pathlib import Path
 
-from src.constants.llm_prompt_constants import (
-    INVOICE_PARSE_PROMPT,
-)
 from src.schemas.invoice_extraction_schema import (
     InvoiceExtractionSchema,
 )
+from src.utils.llama_document_parser import (
+    parse_structured_invoice_llama_extraction,
+)
 from src.utils.llama_extract_utils import (
     extract_invoice_document,
-)
-from src.utils.llm_response_utils import (
-    call_groq_llm,
-    trim_raw_extraction_for_llm,
+    extract_structured_invoice_document,
 )
 
 
@@ -24,18 +21,19 @@ class InvoiceExtractionService:
             file_path,
         )
 
-    def parse_invoice_from_raw(
+    def extract_invoice_from_file(
         self,
-        raw_extraction: str,
+        file_path: Path,
     ) -> InvoiceExtractionSchema:
-        response_text = call_groq_llm(
-            f"{INVOICE_PARSE_PROMPT}\n"
-            f"{trim_raw_extraction_for_llm(raw_extraction)}",
+        raw_extraction = (
+            extract_structured_invoice_document(
+                file_path,
+            )
         )
 
         extraction = (
-            InvoiceExtractionSchema.model_validate_json(
-                response_text,
+            parse_structured_invoice_llama_extraction(
+                raw_extraction,
             )
         )
 

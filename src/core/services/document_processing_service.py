@@ -6,6 +6,9 @@ from src.constants.document_type import DocumentType
 from src.core.services.document_classification_service import (
     DocumentClassificationService,
 )
+from src.core.services.extraction_confidence_service import (
+    ExtractionConfidenceService,
+)
 from src.core.services.invoice_extraction_service import (
     InvoiceExtractionService,
 )
@@ -36,6 +39,9 @@ class DocumentProcessingService:
         )
         self.invoice_extraction_service = (
             InvoiceExtractionService()
+        )
+        self.confidence_service = (
+            ExtractionConfidenceService()
         )
         self.invoice_service = InvoiceService(
             session,
@@ -141,8 +147,14 @@ class DocumentProcessingService:
             return
 
         extraction = (
-            self.invoice_extraction_service.parse_invoice_from_raw(
-                raw_extraction,
+            self.invoice_extraction_service.extract_invoice_from_file(
+                file_path,
+            )
+        )
+
+        confidence_records, has_low_confidence = (
+            self.confidence_service.score_invoice_extraction(
+                extraction,
             )
         )
 
@@ -150,6 +162,12 @@ class DocumentProcessingService:
             extraction=extraction,
             gcs_file_path=str(file_path),
             received_email=message.sender_email,
+            message_id=message.message_id,
+            subject=message.subject,
+            body_text=message.body,
+            attachment_filename=attachment.filename,
+            confidence_records=confidence_records,
+            has_low_confidence=has_low_confidence,
         )
 
         print(

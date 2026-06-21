@@ -3,12 +3,16 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Numeric
+from sqlalchemy import Boolean, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.data.models.postgres.base import Base
-from src.data.models.postgres.enums import AllocationMatchType
+from src.data.models.postgres.enums import (
+    AllocationMatchType,
+    AllocationStatus,
+)
 from src.data.models.postgres.mixins import CreatedAtMixin
+from src.data.models.postgres.types import allocation_match_type_enum
 
 
 class InvoiceLinePOAllocation(Base, CreatedAtMixin):
@@ -45,7 +49,7 @@ class InvoiceLinePOAllocation(Base, CreatedAtMixin):
     )
 
     match_type: Mapped[AllocationMatchType | None] = mapped_column(
-        Enum(AllocationMatchType),
+        allocation_match_type_enum(AllocationMatchType),
         nullable=True,
     )
 
@@ -58,4 +62,10 @@ class InvoiceLinePOAllocation(Base, CreatedAtMixin):
         Boolean,
         nullable=False,
         default=True,
+    )
+
+    allocation_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=AllocationStatus.PENDING.value,
     )

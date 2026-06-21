@@ -41,6 +41,21 @@ class InvoiceRepository(BaseRepository):
 
         return result.scalar_one_or_none() is not None
 
+    async def get_by_gcs_file_path(
+        self,
+        gcs_file_path: str,
+    ) -> Invoice | None:
+        stmt = select(
+            Invoice,
+        ).where(
+            Invoice.gcs_file_path
+            == gcs_file_path,
+        )
+
+        result = await self.execute(stmt)
+
+        return result.scalar_one_or_none()
+
     async def create(
         self,
         gcs_file_path: str,

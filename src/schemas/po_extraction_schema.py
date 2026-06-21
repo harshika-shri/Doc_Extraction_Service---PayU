@@ -1,7 +1,12 @@
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from src.utils.tax_details_utils import (
+    normalize_tax_details,
+)
 
 
 class POLineItemExtractionSchema(BaseModel):
@@ -12,8 +17,21 @@ class POLineItemExtractionSchema(BaseModel):
     quantity_ordered: Decimal | None = None
     unit_price: Decimal | None = None
     discount_amount: Decimal | None = None
-    tax_details: dict | None = None
+    tax_details: dict[str, Any] | None = None
     line_total: Decimal | None = None
+
+    @field_validator(
+        "tax_details",
+        mode="before",
+    )
+    @classmethod
+    def validate_tax_details(
+        cls,
+        value: Any,
+    ) -> dict[str, Any] | None:
+        return normalize_tax_details(
+            value,
+        )
 
 
 class POExtractionSchema(BaseModel):

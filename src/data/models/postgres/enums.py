@@ -64,13 +64,18 @@ class IssueType(str, Enum):
     AMBIGUOUS = "ambiguous"
     DUPLICATE = "duplicate"
     INVALID = "invalid"
+    WARNING = "warning"
 
 
 class ValidationIssueStatus(str, Enum):
     OPEN = "open"
-    ACKNOWLEDGED = "acknowledged"
     RESOLVED = "resolved"
-    IGNORED = "ignored"
+
+
+class IssueDecisionCategory(str, Enum):
+    APPROVE = "approve"
+    PARTIAL_APPROVE = "partial_approve"
+    REJECT = "reject"
 
 
 class AllocationMatchType(str, Enum):
@@ -78,3 +83,15 @@ class AllocationMatchType(str, Enum):
     LLM_FUZZY = "llm_fuzzy"
     SPLIT = "split"
     MANUAL = "manual"
+
+
+class AllocationStatus(str, Enum):
+    PENDING = "pending"
+    COMMITTED = "committed"
+    CANCELLED = "cancelled"
+
+
+class ValidationFlowOutcome(str, Enum):
+    CONTINUE = "continue"
+    REROUTE = "reroute"
+    HARD_STOP = "hard_stop"

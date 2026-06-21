@@ -1,5 +1,6 @@
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,12 @@ from src.data.models.postgres.enums import (
 )
 from src.data.models.postgres.invoices import Invoice
 from src.data.models.postgres.vendor_master import VendorMaster
+from src.data.repositories.extraction_field_confidence_repo import (
+    ExtractionFieldConfidenceRepository,
+)
+from src.data.repositories.invoice_email_repo import (
+    InvoiceEmailRepository,
+)
 from src.data.repositories.invoice_extracted_vendor_repo import (
     InvoiceExtractedVendorRepository,
 )
@@ -24,11 +31,15 @@ from src.data.repositories.invoice_repo import (
     InvoiceRepository,
 )
 from src.schemas.extraction_persistence_schema import (
+    ConfidenceRecordPayload,
     ExtractedInvoicePayload,
 )
 from src.schemas.invoice_extraction_schema import (
     InvoiceExtractionSchema,
     InvoiceLineItemExtractionSchema,
+)
+from src.utils.tax_details_utils import (
+    normalize_tax_details,
 )
 
 
@@ -47,6 +58,16 @@ class InvoiceService:
         )
         self.invoice_line_item_repo = (
             InvoiceLineItemRepository(
+                session,
+            )
+        )
+        self.invoice_email_repo = (
+            InvoiceEmailRepository(
+                session,
+            )
+        )
+        self.confidence_repo = (
+            ExtractionFieldConfidenceRepository(
                 session,
             )
         )
@@ -76,6 +97,15 @@ class InvoiceService:
         extraction: InvoiceExtractionSchema,
         gcs_file_path: str,
         received_email: str | None,
+        *,
+        message_id: str | None = None,
+        subject: str | None = None,
+        body_text: str | None = None,
+        attachment_filename: str | None = None,
+        confidence_records: list[
+            ConfidenceRecordPayload
+        ] | None = None,
+        has_low_confidence: bool = False,
     ) -> Invoice | None:
         if await self.attachment_already_processed(
             gcs_file_path,
@@ -84,7 +114,24 @@ class InvoiceService:
                 "Invoice already exists for file: "
                 f"{gcs_file_path}",
             )
-            return None
+            existing_invoice = (
+                await self.invoice_repo.get_by_gcs_file_path(
+                    gcs_file_path,
+                )
+            )
+
+            if existing_invoice is not None:
+                await self._save_invoice_email(
+                    invoice_id=existing_invoice.id,
+                    message_id=message_id,
+                    received_email=received_email,
+                    subject=subject,
+                    body_text=body_text,
+                    attachment_filename=attachment_filename,
+                    gcs_file_path=gcs_file_path,
+                )
+
+            return existing_invoice
 
         payload = self._build_payload(
             extraction,
@@ -107,10 +154,16 @@ class InvoiceService:
                 "0",
             )
 
+        extraction_status = (
+            ExtractionStatus.LOW_CONFIDENCE
+            if has_low_confidence
+            else ExtractionStatus.EXTRACTED
+        )
+
         invoice = await self.invoice_repo.create(
             gcs_file_path=gcs_file_path,
             received_email=received_email,
-            extraction_status=ExtractionStatus.EXTRACTED,
+            extraction_status=extraction_status,
             header_fields=payload.header_fields,
         )
 
@@ -132,6 +185,23 @@ class InvoiceService:
                 line_item_fields=line_item_fields,
             )
 
+        await self._save_invoice_email(
+            invoice_id=invoice.id,
+            message_id=message_id,
+            received_email=received_email,
+            subject=subject,
+            body_text=body_text,
+            attachment_filename=attachment_filename,
+            gcs_file_path=gcs_file_path,
+        )
+
+        if confidence_records:
+            for record in confidence_records:
+                await self.confidence_repo.create(
+                    invoice_id=invoice.id,
+                    record=record,
+                )
+
         await self.invoice_repo.flush()
 
         print(
@@ -142,6 +212,53 @@ class InvoiceService:
         )
 
         return invoice
+
+    async def _save_invoice_email(
+        self,
+        *,
+        invoice_id: UUID,
+        message_id: str | None,
+        received_email: str | None,
+        subject: str | None,
+        body_text: str | None,
+        attachment_filename: str | None,
+        gcs_file_path: str,
+    ) -> None:
+        if message_id is None:
+            return
+
+        if await self.invoice_email_repo.exists_for_invoice_id(
+            invoice_id,
+        ):
+            return
+
+        email_message_id = self._build_email_message_id(
+            message_id=message_id,
+            attachment_filename=attachment_filename,
+        )
+
+        if await self.invoice_email_repo.exists_for_message_id(
+            email_message_id,
+        ):
+            return
+
+        await self.invoice_email_repo.create(
+            invoice_id=invoice_id,
+            message_id=email_message_id,
+            received_from=self._normalize_received_from(
+                received_email,
+            ),
+            subject=subject,
+            body_text=body_text,
+            attachment_filename=attachment_filename,
+            gcs_attachment_path=gcs_file_path,
+        )
+
+        print(
+            "Invoice email saved: "
+            f"invoice_id={invoice_id}, "
+            f"message_id={email_message_id}",
+        )
 
     async def _resolve_vendor_id(
         self,
@@ -260,7 +377,7 @@ class InvoiceService:
         quantity = line_item.quantity_billed
         unit_price = line_item.unit_price
         line_total = line_item.line_total
-        tax_details = self._normalize_tax_details(
+        tax_details = normalize_tax_details(
             line_item.tax_details,
         )
 
@@ -388,56 +505,24 @@ class InvoiceService:
         return line_values
 
     @staticmethod
-    def _normalize_tax_details(
-        tax_details: Any,
-    ) -> dict[str, Any] | None:
-        if tax_details is None:
-            return None
+    def _build_email_message_id(
+        message_id: str,
+        attachment_filename: str | None,
+    ) -> str:
+        if attachment_filename:
+            composite = (
+                f"{message_id}::{attachment_filename}"
+            )
+            return composite[:500]
 
-        if isinstance(
-            tax_details,
-            dict,
-        ):
-            return tax_details
+        return message_id[:500]
 
-        if isinstance(
-            tax_details,
-            list,
-        ):
-            normalized: dict[str, Any] = {}
+    @staticmethod
+    def _normalize_received_from(
+        received_email: str | None,
+    ) -> str:
+        if received_email and received_email.strip():
+            return received_email.strip()[:255]
 
-            for index, item in enumerate(
-                tax_details,
-            ):
-                if not isinstance(
-                    item,
-                    dict,
-                ):
-                    continue
+        return "unknown@unknown"
 
-                tax_name = item.get(
-                    "tax_name",
-                ) or item.get(
-                    "name",
-                )
-                tax_value = item.get(
-                    "tax_value",
-                ) or item.get(
-                    "value",
-                )
-
-                if tax_name is not None:
-                    normalized[
-                        str(tax_name)
-                    ] = tax_value
-
-                elif tax_value is not None:
-                    normalized[
-                        f"tax_{index + 1}"
-                    ] = tax_value
-
-            return normalized or None
-
-        return {
-            "value": tax_details,
-        }

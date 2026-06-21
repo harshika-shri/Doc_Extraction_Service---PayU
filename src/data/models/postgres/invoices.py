@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from src.data.models.postgres.base import Base
 from src.data.models.postgres.enums import ExtractionStatus, InvoiceStatus
 from src.data.models.postgres.mixins import TimestampMixin
+from src.data.models.postgres.types import pg_enum
 
 
 class Invoice(Base, TimestampMixin):
@@ -119,7 +120,7 @@ class Invoice(Base, TimestampMixin):
     )
 
     invoice_status: Mapped[InvoiceStatus | None] = mapped_column(
-        Enum(InvoiceStatus),
+        pg_enum(InvoiceStatus),
         nullable=True,
     )
 

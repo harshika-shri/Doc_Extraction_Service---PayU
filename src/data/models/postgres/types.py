@@ -22,3 +22,12 @@ def user_role_enum(enum_class: type[E]) -> SAEnum:
             member.name for member in members
         ],
     )
+
+
+def allocation_match_type_enum(enum_class: type[E]) -> SAEnum:
+    return SAEnum(
+        enum_class,
+        values_callable=lambda members: [
+            member.name for member in members
+        ],
+    )
