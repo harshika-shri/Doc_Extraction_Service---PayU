@@ -8,6 +8,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from src.config.llm_config import (
+    GROQ_MODEL_EXTRACTION,
     GROQ_MODEL_PARSE_INVOICE,
 )
 from src.config.settings import settings
@@ -383,6 +384,107 @@ def call_groq_llm(
             response_payload = _post_groq_json(
                 request_body,
                 api_key=settings.GROQ_API_KEY,
+            )
+
+            return extract_chat_completion_text(
+                response_payload,
+            )
+        except LLMServiceError as error:
+            last_error = error
+
+            if (
+                attempt < max_retries
+                and _is_rate_limit_error(
+                    error,
+                )
+            ):
+                time.sleep(
+                    5 * (attempt + 1),
+                )
+                continue
+
+            raise
+
+    if last_error is not None:
+        raise last_error
+
+    raise LLMServiceError(
+        "Groq API request failed.",
+        provider="groq",
+    )
+
+
+def call_groq_vision_llm(
+    prompt: str,
+    image_data_urls: list[str],
+    *,
+    model: str | None = None,
+    max_tokens: int | None = None,
+    max_retries: int = 2,
+) -> str:
+    _validate_groq_configuration()
+
+    if not image_data_urls:
+        raise LLMServiceError(
+            "At least one document image is required for vision extraction.",
+            provider="groq",
+            status_code=400,
+        )
+
+    selected_model = (
+        model or GROQ_MODEL_EXTRACTION
+    )
+    selected_max_tokens = (
+        max_tokens
+        if max_tokens is not None
+        else settings.GROQ_LLM_MAX_TOKENS
+    )
+
+    content: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": (
+                f"{prompt}\n\n"
+                "Return valid JSON only."
+            ),
+        },
+    ]
+
+    for image_data_url in image_data_urls:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": image_data_url,
+                },
+            },
+        )
+
+    request_body: dict[str, Any] = {
+        "model": selected_model,
+        "messages": [
+            {
+                "role": "user",
+                "content": content,
+            },
+        ],
+        "temperature": 0,
+        "max_tokens": selected_max_tokens,
+        "response_format": {
+            "type": "json_object",
+        },
+    }
+
+    last_error: LLMServiceError | None = None
+
+    for attempt in range(
+        max_retries + 1,
+    ):
+        try:
+            response_payload = _post_groq_json(
+                request_body,
+                api_key=settings.GROQ_API_KEY,
+                timeout=180,
             )
 
             return extract_chat_completion_text(

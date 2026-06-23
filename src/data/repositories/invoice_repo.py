@@ -1,7 +1,10 @@
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from src.data.models.postgres.company_master import CompanyMaster
-from src.data.models.postgres.enums import ExtractionStatus
+from src.data.models.postgres.enums import (
+    ExtractionStatus,
+    InvoiceStatus,
+)
 from src.data.models.postgres.invoices import Invoice
 from src.data.repositories.base_repo import BaseRepository
 
@@ -116,3 +119,62 @@ class InvoiceRepository(BaseRepository):
                 return ids[0]
 
         return None
+
+    async def list_processing(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Invoice], int]:
+        processing_filter = or_(
+            Invoice.extraction_status
+            != ExtractionStatus.EXTRACTION_APPROVED,
+            Invoice.invoice_status
+            == InvoiceStatus.UNDER_VALIDATION,
+        )
+
+        count_stmt = (
+            select(
+                func.count(),
+            )
+            .select_from(
+                Invoice,
+            )
+            .where(
+                processing_filter,
+            )
+        )
+        count_result = await self.execute(
+            count_stmt,
+        )
+        total = int(
+            count_result.scalar_one(),
+        )
+
+        stmt = (
+            select(
+                Invoice,
+            )
+            .where(
+                processing_filter,
+            )
+            .order_by(
+                Invoice.created_at.desc(),
+            )
+            .limit(
+                limit,
+            )
+            .offset(
+                offset,
+            )
+        )
+        result = await self.execute(
+            stmt,
+        )
+
+        return (
+            list(
+                result.scalars().all(),
+            ),
+            total,
+        )

@@ -1,7 +1,7 @@
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from src.data.models.postgres.enums import (
     PurchaseOrderStatus,
@@ -96,3 +96,46 @@ class PurchaseOrderRepository(BaseRepository):
 
     async def flush(self) -> None:
         await self.session.flush()
+
+    async def list_recent(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[PurchaseOrder], int]:
+        count_stmt = select(
+            func.count(),
+        ).select_from(
+            PurchaseOrder,
+        )
+        count_result = await self.execute(
+            count_stmt,
+        )
+        total = int(
+            count_result.scalar_one(),
+        )
+
+        stmt = (
+            select(
+                PurchaseOrder,
+            )
+            .order_by(
+                PurchaseOrder.created_at.desc(),
+            )
+            .limit(
+                limit,
+            )
+            .offset(
+                offset,
+            )
+        )
+        result = await self.execute(
+            stmt,
+        )
+
+        return (
+            list(
+                result.scalars().all(),
+            ),
+            total,
+        )

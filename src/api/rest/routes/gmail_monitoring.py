@@ -8,6 +8,7 @@ from src.core.services.gmail_monitoring_service import (
     GmailMonitoringService,
 )
 from src.schemas.gmail_monitoring_schema import (
+    MonitoringStatusResponse,
     StartMonitoringRequest,
     StopMonitoringRequest,
 )
@@ -55,4 +56,23 @@ async def stop_monitoring(
 
     return await service.stop_monitoring(
         payload.email_address,
+    )
+
+
+@router.get(
+    "/status",
+    response_model=MonitoringStatusResponse,
+)
+async def get_monitoring_status(
+    email_address: str,
+    db: AsyncSession = Depends(
+        get_db_session,
+    ),
+) -> MonitoringStatusResponse:
+    service = GmailMonitoringService(
+        db,
+    )
+
+    return await service.get_monitoring_status(
+        email_address,
     )

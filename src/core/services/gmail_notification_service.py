@@ -204,6 +204,7 @@ class GmailNotificationService:
                         f"{message_id}:",
                     )
                     traceback.print_exc()
+                    await self.session.rollback()
 
             refreshed_state = (
                 await self.repo.get_by_email(

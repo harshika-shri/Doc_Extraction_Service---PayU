@@ -7,7 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
+from src.constants.document_type import DocumentType
 from src.core.exceptions.llm_exc import LLMServiceError
+from src.core.services.document_classifier_service import (
+    DocumentClassifierService,
+)
 from src.core.services.po_extraction_service import (
     POExtractionService,
 )
@@ -30,6 +34,8 @@ from src.schemas.po_extraction_schema import (
     POLineItemExtractionSchema,
 )
 from src.schemas.purchase_order_schema import (
+    PurchaseOrderListItem,
+    PurchaseOrderListResponse,
     PurchaseOrderUploadResponse,
 )
 from src.utils.file_utils import (
@@ -90,6 +96,9 @@ class PurchaseOrderService:
         self.po_extraction_service = (
             POExtractionService()
         )
+        self.classifier_service = (
+            DocumentClassifierService()
+        )
 
     async def upload_purchase_order(
         self,
@@ -107,6 +116,26 @@ class PurchaseOrderService:
         )
 
         try:
+            classification = (
+                self.classifier_service.classify_document(
+                    file_path,
+                )
+            )
+
+            if (
+                classification.document_type
+                != DocumentType.PURCHASE_ORDER
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Uploaded document is not a "
+                        "purchase order. "
+                        f"Detected type: "
+                        f"{classification.document_type.value}."
+                    ),
+                )
+
             extraction = (
                 self.po_extraction_service.extract_purchase_order(
                     file_path,
@@ -358,3 +387,46 @@ class PurchaseOrderService:
             )
 
         return line_values
+
+    async def list_purchase_orders(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PurchaseOrderListResponse:
+        purchase_orders, total = (
+            await self.purchase_order_repo.list_recent(
+                limit=limit,
+                offset=offset,
+            )
+        )
+
+        items = [
+            PurchaseOrderListItem(
+                id=po.id,
+                po_number=po.po_number,
+                po_date=po.po_date,
+                status=po.status.value
+                if hasattr(
+                    po.status,
+                    "value",
+                )
+                else str(
+                    po.status,
+                ),
+                total_amount=float(
+                    po.total_amount,
+                )
+                if po.total_amount
+                is not None
+                else None,
+                currency=po.currency,
+                created_at=po.created_at,
+            )
+            for po in purchase_orders
+        ]
+
+        return PurchaseOrderListResponse(
+            items=items,
+            total=total,
+        )

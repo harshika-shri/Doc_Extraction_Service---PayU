@@ -1,8 +1,6 @@
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants.extraction_constants import (
@@ -14,7 +12,6 @@ from src.data.models.postgres.enums import (
     ExtractionStatus,
 )
 from src.data.models.postgres.invoices import Invoice
-from src.data.models.postgres.vendor_master import VendorMaster
 from src.data.repositories.extraction_field_confidence_repo import (
     ExtractionFieldConfidenceRepository,
 )
@@ -30,13 +27,21 @@ from src.data.repositories.invoice_line_item_repo import (
 from src.data.repositories.invoice_repo import (
     InvoiceRepository,
 )
+from src.data.repositories.invoice_validation_issue_repo import (
+    InvoiceValidationIssueRepository,
+)
 from src.schemas.extraction_persistence_schema import (
     ConfidenceRecordPayload,
     ExtractedInvoicePayload,
+    ValidationIssuePayload,
 )
 from src.schemas.invoice_extraction_schema import (
     InvoiceExtractionSchema,
     InvoiceLineItemExtractionSchema,
+)
+from src.schemas.invoice_schema import (
+    InvoiceProcessingItem,
+    InvoiceProcessingListResponse,
 )
 from src.utils.tax_details_utils import (
     normalize_tax_details,
@@ -66,19 +71,14 @@ class InvoiceService:
                 session,
             )
         )
-        self.confidence_repo = (
+        self.extraction_field_confidence_repo = (
             ExtractionFieldConfidenceRepository(
                 session,
             )
         )
-
-    async def message_already_processed(
-        self,
-        gmail_message_id: str,
-    ) -> bool:
-        return (
-            await self.invoice_repo.exists_for_gmail_message_id(
-                gmail_message_id,
+        self.invoice_validation_issue_repo = (
+            InvoiceValidationIssueRepository(
+                session,
             )
         )
 
@@ -86,10 +86,16 @@ class InvoiceService:
         self,
         gcs_file_path: str,
     ) -> bool:
-        return (
-            await self.invoice_repo.exists_for_gcs_file_path(
-                gcs_file_path,
-            )
+        return await self.invoice_repo.exists_for_gcs_file_path(
+            gcs_file_path,
+        )
+
+    async def message_already_processed(
+        self,
+        gmail_message_id: str,
+    ) -> bool:
+        return await self.invoice_repo.exists_for_gmail_message_id(
+            gmail_message_id,
         )
 
     async def save_extracted_invoice(
@@ -97,47 +103,26 @@ class InvoiceService:
         extraction: InvoiceExtractionSchema,
         gcs_file_path: str,
         received_email: str | None,
-        *,
-        message_id: str | None = None,
-        subject: str | None = None,
-        body_text: str | None = None,
-        attachment_filename: str | None = None,
-        confidence_records: list[
-            ConfidenceRecordPayload
-        ] | None = None,
-        has_low_confidence: bool = False,
-    ) -> Invoice | None:
+        message_id: str,
+        subject: str | None,
+        body_text: str | None,
+        attachment_filename: str | None,
+        confidence_records: list[ConfidenceRecordPayload],
+        has_low_confidence: bool,
+    ) -> Invoice:
         if await self.attachment_already_processed(
             gcs_file_path,
         ):
-            print(
-                "Invoice already exists for file: "
-                f"{gcs_file_path}",
-            )
-            existing_invoice = (
+            existing = (
                 await self.invoice_repo.get_by_gcs_file_path(
                     gcs_file_path,
                 )
             )
-
-            if existing_invoice is not None:
-                await self._save_invoice_email(
-                    invoice_id=existing_invoice.id,
-                    message_id=message_id,
-                    received_email=received_email,
-                    subject=subject,
-                    body_text=body_text,
-                    attachment_filename=attachment_filename,
-                    gcs_file_path=gcs_file_path,
-                )
-
-            return existing_invoice
+            if existing is not None:
+                return existing
 
         payload = self._build_payload(
             extraction,
-        )
-        vendor_id = await self._resolve_vendor_id(
-            payload.vendor_fields,
         )
 
         if not payload.header_fields.get(
@@ -167,17 +152,11 @@ class InvoiceService:
             header_fields=payload.header_fields,
         )
 
-        if vendor_id is not None:
-            invoice.vendor_id = vendor_id
-
         if payload.vendor_fields:
-            vendor = await self.invoice_extracted_vendor_repo.create(
+            await self.invoice_extracted_vendor_repo.create(
                 invoice_id=invoice.id,
                 vendor_fields=payload.vendor_fields,
             )
-
-            if vendor_id is not None:
-                vendor.vendor_master_id = vendor_id
 
         for line_item_fields in payload.line_items:
             await self.invoice_line_item_repo.create(
@@ -185,22 +164,41 @@ class InvoiceService:
                 line_item_fields=line_item_fields,
             )
 
-        await self._save_invoice_email(
-            invoice_id=invoice.id,
+        for record in confidence_records:
+            await self.extraction_field_confidence_repo.create(
+                invoice_id=invoice.id,
+                record=record,
+            )
+
+            if record.is_flagged:
+                await self.invoice_validation_issue_repo.create(
+                    invoice_id=invoice.id,
+                    issue=ValidationIssuePayload(
+                        check_name="low_confidence",
+                        field_name=record.field_name,
+                        description=(
+                            "Low confidence extraction for "
+                            f"{record.field_name}."
+                        ),
+                        actual_value=record.extracted_value,
+                    ),
+                )
+
+        email_message_id = self._build_email_message_id(
             message_id=message_id,
-            received_email=received_email,
-            subject=subject,
-            body_text=body_text,
             attachment_filename=attachment_filename,
-            gcs_file_path=gcs_file_path,
         )
 
-        if confidence_records:
-            for record in confidence_records:
-                await self.confidence_repo.create(
-                    invoice_id=invoice.id,
-                    record=record,
-                )
+        if received_email is not None:
+            await self.invoice_email_repo.create(
+                invoice_id=invoice.id,
+                message_id=email_message_id,
+                received_from=received_email,
+                subject=subject,
+                body_text=body_text,
+                attachment_filename=attachment_filename,
+                gcs_attachment_path=gcs_file_path,
+            )
 
         await self.invoice_repo.flush()
 
@@ -213,107 +211,77 @@ class InvoiceService:
 
         return invoice
 
-    async def _save_invoice_email(
+    async def list_processing_invoices(
         self,
         *,
-        invoice_id: UUID,
-        message_id: str | None,
-        received_email: str | None,
-        subject: str | None,
-        body_text: str | None,
-        attachment_filename: str | None,
-        gcs_file_path: str,
-    ) -> None:
-        if message_id is None:
-            return
-
-        if await self.invoice_email_repo.exists_for_invoice_id(
-            invoice_id,
-        ):
-            return
-
-        email_message_id = self._build_email_message_id(
-            message_id=message_id,
-            attachment_filename=attachment_filename,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> InvoiceProcessingListResponse:
+        invoices, total = (
+            await self.invoice_repo.list_processing(
+                limit=limit,
+                offset=offset,
+            )
         )
 
-        if await self.invoice_email_repo.exists_for_message_id(
-            email_message_id,
-        ):
-            return
-
-        await self.invoice_email_repo.create(
-            invoice_id=invoice_id,
-            message_id=email_message_id,
-            received_from=self._normalize_received_from(
-                received_email,
-            ),
-            subject=subject,
-            body_text=body_text,
-            attachment_filename=attachment_filename,
-            gcs_attachment_path=gcs_file_path,
-        )
-
-        print(
-            "Invoice email saved: "
-            f"invoice_id={invoice_id}, "
-            f"message_id={email_message_id}",
-        )
-
-    async def _resolve_vendor_id(
-        self,
-        vendor_fields: dict[str, Any],
-    ):
-        lookup_fields = [
-            (
-                VendorMaster.gstin,
-                vendor_fields.get("vendor_gstin"),
-            ),
-            (
-                VendorMaster.vendor_name,
-                vendor_fields.get("vendor_name"),
-            ),
-            (
-                VendorMaster.email,
-                vendor_fields.get("vendor_email"),
-            ),
-            (
-                VendorMaster.phone,
-                vendor_fields.get("vendor_phone"),
-            ),
-            (
-                VendorMaster.account_number,
-                vendor_fields.get("bank_account_number"),
-            ),
-            (
-                VendorMaster.ifsc_code,
-                vendor_fields.get("ifsc_code"),
-            ),
-            (
-                VendorMaster.account_holder_name,
-                vendor_fields.get("account_holder_name"),
-            ),
-            (
-                VendorMaster.bank_name,
-                vendor_fields.get("bank_name"),
-            ),
+        items = [
+            InvoiceProcessingItem(
+                id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                invoice_date=invoice.invoice_date,
+                received_email=invoice.received_email,
+                extraction_status=invoice.extraction_status.value
+                if hasattr(
+                    invoice.extraction_status,
+                    "value",
+                )
+                else str(
+                    invoice.extraction_status,
+                ),
+                invoice_status=invoice.invoice_status.value
+                if invoice.invoice_status
+                is not None
+                and hasattr(
+                    invoice.invoice_status,
+                    "value",
+                )
+                else (
+                    str(
+                        invoice.invoice_status,
+                    )
+                    if invoice.invoice_status
+                    is not None
+                    else None
+                ),
+                total_amount=float(
+                    invoice.total_amount,
+                )
+                if invoice.total_amount
+                is not None
+                else None,
+                currency=invoice.currency,
+                created_at=invoice.created_at,
+            )
+            for invoice in invoices
         ]
 
-        for column, value in lookup_fields:
-            if not value:
-                continue
+        return InvoiceProcessingListResponse(
+            items=items,
+            total=total,
+        )
 
-            result = await self.invoice_repo.execute(
-                select(VendorMaster.id).where(
-                    column == value,
-                ).limit(2),
+    def _build_email_message_id(
+        self,
+        *,
+        message_id: str,
+        attachment_filename: str | None,
+    ) -> str:
+        if attachment_filename:
+            return (
+                f"{message_id}::{attachment_filename}"
             )
-            ids = list(result.scalars().all())
 
-            if len(ids) == 1:
-                return ids[0]
-
-        return None
+        return message_id
 
     def _build_payload(
         self,
@@ -503,26 +471,3 @@ class InvoiceService:
             )
 
         return line_values
-
-    @staticmethod
-    def _build_email_message_id(
-        message_id: str,
-        attachment_filename: str | None,
-    ) -> str:
-        if attachment_filename:
-            composite = (
-                f"{message_id}::{attachment_filename}"
-            )
-            return composite[:500]
-
-        return message_id[:500]
-
-    @staticmethod
-    def _normalize_received_from(
-        received_email: str | None,
-    ) -> str:
-        if received_email and received_email.strip():
-            return received_email.strip()[:255]
-
-        return "unknown@unknown"
-

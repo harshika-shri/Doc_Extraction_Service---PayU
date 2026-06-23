@@ -1,49 +1,31 @@
 from pathlib import Path
 
+from src.core.services.invoice.invoice_extraction_orchestrator import (
+    InvoiceExtractionOrchestrator,
+)
 from src.schemas.invoice_extraction_schema import (
     InvoiceExtractionSchema,
-)
-from src.utils.llama_document_parser import (
-    parse_structured_invoice_llama_extraction,
-)
-from src.utils.llama_extract_utils import (
-    extract_invoice_document,
-    extract_structured_invoice_document,
 )
 
 
 class InvoiceExtractionService:
-    def extract_invoice_document(
-        self,
-        file_path: Path,
-    ) -> str:
-        return extract_invoice_document(
-            file_path,
+    def __init__(self) -> None:
+        self._orchestrator = (
+            InvoiceExtractionOrchestrator()
         )
 
     def extract_invoice_from_file(
         self,
         file_path: Path,
     ) -> InvoiceExtractionSchema:
-        raw_extraction = (
-            extract_structured_invoice_document(
-                file_path,
-            )
-        )
+        return self._orchestrator.extract(
+            file_path,
+        ).extraction
 
-        extraction = (
-            parse_structured_invoice_llama_extraction(
-                raw_extraction,
-            )
+    def extract_invoice_with_confidence(
+        self,
+        file_path: Path,
+    ):
+        return self._orchestrator.extract(
+            file_path,
         )
-
-        print("\n" + "=" * 80)
-        print("INVOICE STRUCTURED EXTRACTION")
-        print("=" * 80)
-        print(
-            extraction.model_dump_json(
-                indent=2,
-            ),
-        )
-
-        return extraction
