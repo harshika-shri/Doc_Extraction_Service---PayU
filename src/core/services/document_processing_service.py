@@ -3,8 +3,8 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants.document_type import DocumentType
-from src.core.services.document_classification_service import (
-    DocumentClassificationService,
+from src.core.services.document_classifier_service import (
+    DocumentClassifierService,
 )
 from src.core.services.invoice_extraction_service import (
     InvoiceExtractionService,
@@ -16,12 +16,12 @@ from src.schemas.gmail_message_schema import (
     GmailAttachmentSchema,
     GmailMessageSchema,
 )
+from src.utils.extraction_field_utils import (
+    identify_review_fields,
+)
 from src.utils.file_utils import (
     delete_attachment_file,
     is_processable_attachment,
-)
-from src.utils.llama_extract_utils import (
-    extract_invoice_document,
 )
 
 
@@ -31,8 +31,8 @@ class DocumentProcessingService:
         session: AsyncSession,
     ) -> None:
         self.session = session
-        self.classification_service = (
-            DocumentClassificationService()
+        self.classifier_service = (
+            DocumentClassifierService()
         )
         self.invoice_extraction_service = (
             InvoiceExtractionService()
@@ -100,15 +100,9 @@ class DocumentProcessingService:
             )
             return
 
-        raw_extraction = (
-            extract_invoice_document(
-                file_path,
-            )
-        )
-
         classification = (
-            self.classification_service.classify_from_raw(
-                raw_extraction,
+            self.classifier_service.classify_document(
+                file_path,
             )
         )
 
@@ -116,7 +110,7 @@ class DocumentProcessingService:
             classification.document_type
             != DocumentType.INVOICE
         ):
-            if not DocumentClassificationService.is_supported_document_type(
+            if not DocumentClassifierService.is_supported_document_type(
                 classification.document_type,
             ):
                 print(
@@ -140,16 +134,28 @@ class DocumentProcessingService:
             )
             return
 
-        extraction = (
-            self.invoice_extraction_service.parse_invoice_from_raw(
-                raw_extraction,
+        extraction_result = (
+            self.invoice_extraction_service.extract_invoice_with_confidence(
+                file_path,
+            )
+        )
+
+        confidence_records, has_low_confidence = (
+            identify_review_fields(
+                extraction_result.confidence_records,
             )
         )
 
         await self.invoice_service.save_extracted_invoice(
-            extraction=extraction,
+            extraction=extraction_result.extraction,
             gcs_file_path=str(file_path),
             received_email=message.sender_email,
+            message_id=message.message_id,
+            subject=message.subject,
+            body_text=message.body,
+            attachment_filename=attachment.filename,
+            confidence_records=confidence_records,
+            has_low_confidence=has_low_confidence,
         )
 
         print(

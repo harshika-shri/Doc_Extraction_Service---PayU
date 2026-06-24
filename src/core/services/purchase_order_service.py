@@ -7,7 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
+from src.constants.document_type import DocumentType
 from src.core.exceptions.llm_exc import LLMServiceError
+from src.core.services.document_classifier_service import (
+    DocumentClassifierService,
+)
 from src.core.services.po_extraction_service import (
     POExtractionService,
 )
@@ -30,10 +34,15 @@ from src.schemas.po_extraction_schema import (
     POLineItemExtractionSchema,
 )
 from src.schemas.purchase_order_schema import (
+    PurchaseOrderListItem,
+    PurchaseOrderListResponse,
     PurchaseOrderUploadResponse,
 )
 from src.utils.file_utils import (
     save_uploaded_file,
+)
+from src.utils.tax_details_utils import (
+    normalize_tax_details,
 )
 
 
@@ -87,6 +96,9 @@ class PurchaseOrderService:
         self.po_extraction_service = (
             POExtractionService()
         )
+        self.classifier_service = (
+            DocumentClassifierService()
+        )
 
     async def upload_purchase_order(
         self,
@@ -104,6 +116,26 @@ class PurchaseOrderService:
         )
 
         try:
+            classification = (
+                self.classifier_service.classify_document(
+                    file_path,
+                )
+            )
+
+            if (
+                classification.document_type
+                != DocumentType.PURCHASE_ORDER
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Uploaded document is not a "
+                        "purchase order. "
+                        f"Detected type: "
+                        f"{classification.document_type.value}."
+                    ),
+                )
+
             extraction = (
                 self.po_extraction_service.extract_purchase_order(
                     file_path,
@@ -150,6 +182,26 @@ class PurchaseOrderService:
             ),
         )
 
+    async def file_already_processed(
+        self,
+        gcs_file_path: str,
+    ) -> bool:
+        return (
+            await self.purchase_order_repo.exists_for_gcs_file_path(
+                gcs_file_path,
+            )
+        )
+
+    async def po_number_already_exists(
+        self,
+        po_number: str,
+    ) -> bool:
+        return (
+            await self.purchase_order_repo.exists_for_po_number(
+                po_number,
+            )
+        )
+
     async def save_extracted_purchase_order(
         self,
         payload: ExtractedPurchaseOrderPayload,
@@ -159,11 +211,35 @@ class PurchaseOrderService:
         vendor_name: str | None = None,
         vendor_gstin: str | None = None,
     ) -> PurchaseOrder | None:
-        if not payload.header_fields.get("po_number"):
+        po_number = payload.header_fields.get(
+            "po_number",
+        )
+
+        if not po_number:
             return None
 
         if not payload.header_fields.get("po_date"):
             return None
+
+        if await self.file_already_processed(
+            gcs_file_path,
+        ):
+            return (
+                await self.purchase_order_repo.get_by_gcs_file_path(
+                    gcs_file_path,
+                )
+            )
+
+        if await self.po_number_already_exists(
+            str(po_number),
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Purchase order with number "
+                    f"'{po_number}' already exists."
+                ),
+            )
 
         vendor_id = await self._resolve_vendor_id(
             vendor_name=vendor_name,
@@ -203,17 +279,23 @@ class PurchaseOrderService:
         vendor_gstin: str | None,
     ):
         lookup_fields = [
-            ("vendor_gstin", vendor_gstin),
-            ("vendor_name", vendor_name),
+            (
+                VendorMaster.gstin,
+                vendor_gstin,
+            ),
+            (
+                VendorMaster.vendor_name,
+                vendor_name,
+            ),
         ]
 
-        for field_name, value in lookup_fields:
+        for column, value in lookup_fields:
             if not value:
                 continue
 
             result = await self.purchase_order_repo.execute(
                 select(VendorMaster.id).where(
-                    getattr(VendorMaster, field_name) == value,
+                    column == value,
                 ).limit(2),
             )
             ids = list(result.scalars().all())
@@ -288,7 +370,16 @@ class PurchaseOrderService:
             )
 
             if value is not None:
-                line_values[field_name] = value
+                if field_name == "tax_details":
+                    line_values[
+                        field_name
+                    ] = normalize_tax_details(
+                        value,
+                    )
+                else:
+                    line_values[
+                        field_name
+                    ] = value
 
         if "discount_amount" not in line_values:
             line_values["discount_amount"] = Decimal(
@@ -296,3 +387,46 @@ class PurchaseOrderService:
             )
 
         return line_values
+
+    async def list_purchase_orders(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PurchaseOrderListResponse:
+        purchase_orders, total = (
+            await self.purchase_order_repo.list_recent(
+                limit=limit,
+                offset=offset,
+            )
+        )
+
+        items = [
+            PurchaseOrderListItem(
+                id=po.id,
+                po_number=po.po_number,
+                po_date=po.po_date,
+                status=po.status.value
+                if hasattr(
+                    po.status,
+                    "value",
+                )
+                else str(
+                    po.status,
+                ),
+                total_amount=float(
+                    po.total_amount,
+                )
+                if po.total_amount
+                is not None
+                else None,
+                currency=po.currency,
+                created_at=po.created_at,
+            )
+            for po in purchase_orders
+        ]
+
+        return PurchaseOrderListResponse(
+            items=items,
+            total=total,
+        )

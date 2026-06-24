@@ -59,8 +59,12 @@ class Settings(BaseSettings):
         validation_alias="GROQ_API_BASE_URL",
     )
     GROQ_LLM_MODEL: str = Field(
-        default="openai/gpt-oss-20b",
+        default="llama-3.1-8b-instant",
         validation_alias="GROQ_LLM_MODEL",
+    )
+    GROQ_LLM_MAX_TOKENS: int = Field(
+        default=8192,
+        validation_alias="GROQ_LLM_MAX_TOKENS",
     )
 
     @field_validator(

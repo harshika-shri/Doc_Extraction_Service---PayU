@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from sqlalchemy import Enum, ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -12,6 +12,7 @@ from src.data.models.postgres.enums import (
     ValidationIssueStatus,
 )
 from src.data.models.postgres.mixins import TimestampMixin
+from src.data.models.postgres.types import pg_enum
 
 
 class InvoiceValidationIssue(Base, TimestampMixin):
@@ -48,7 +49,7 @@ class InvoiceValidationIssue(Base, TimestampMixin):
     )
 
     issue_type: Mapped[IssueType] = mapped_column(
-        Enum(IssueType),
+        pg_enum(IssueType),
         nullable=False,
     )
 
@@ -68,7 +69,7 @@ class InvoiceValidationIssue(Base, TimestampMixin):
     )
 
     status: Mapped[ValidationIssueStatus] = mapped_column(
-        Enum(ValidationIssueStatus),
+        pg_enum(ValidationIssueStatus),
         nullable=False,
         default=ValidationIssueStatus.OPEN,
     )

@@ -42,6 +42,12 @@ class InvoiceStatus(str, Enum):
     PENDING_ACTION = "pending_action"
     OVERDUE = "overdue"
     PAID = "paid"
+    UNDER_REVIEW = "under_review"
+    READY_FOR_APPROVAL = "ready_for_approval"
+    PARTIALLY_APPROVED = "partially_approved"
+    REJECTED = "rejected"
+    ESCALATED = "escalated"
+    READY_TO_PAY = "ready_to_pay"
 
 
 class DisputeStatus(str, Enum):
@@ -64,13 +70,31 @@ class IssueType(str, Enum):
     AMBIGUOUS = "ambiguous"
     DUPLICATE = "duplicate"
     INVALID = "invalid"
+    WARNING = "warning"
 
 
 class ValidationIssueStatus(str, Enum):
     OPEN = "open"
-    ACKNOWLEDGED = "acknowledged"
+    PENDING_REVIEW = "pending_review"
     RESOLVED = "resolved"
-    IGNORED = "ignored"
+    WAIVED = "waived"
+
+
+class InvoiceValidationDecision(str, Enum):
+    APPROVED_AND_READY_TO_PAY = "approved_and_ready_to_pay"
+    PARTIAL_APPROVE = "partial_approve"
+    REJECT = "reject"
+
+
+class InvoiceValidationOutcome(str, Enum):
+    RESOLVED = "resolved"
+    RECOVERED = "recovered"
+    AMBIGUOUS = "ambiguous"
+    UNRESOLVED = "unresolved"
+    DUPLICATE = "duplicate"
+    APPROVED = "approved"
+    PENDING_REVIEW = "pending_review"
+    REJECTED = "rejected"
 
 
 class AllocationMatchType(str, Enum):
@@ -78,3 +102,22 @@ class AllocationMatchType(str, Enum):
     LLM_FUZZY = "llm_fuzzy"
     SPLIT = "split"
     MANUAL = "manual"
+
+
+class AllocationStatus(str, Enum):
+    PENDING = "pending"
+    COMMITTED = "committed"
+    CANCELLED = "cancelled"
+    CONFIRMED = "confirmed"
+
+
+class ValidationFlowOutcome(str, Enum):
+    CONTINUE = "continue"
+    REROUTE = "reroute"
+    HARD_STOP = "hard_stop"
+
+
+class POResolutionCandidateType(str, Enum):
+    RESOLVED = "resolved"
+    RECOVERED = "recovered"
+    AMBIGUOUS = "ambiguous"

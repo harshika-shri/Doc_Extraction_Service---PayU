@@ -13,6 +13,9 @@ from src.api.rest.routes.gmail_webhook import (
     router as gmail_webhook_router,
 )
 from src.api.rest.routes.health import router as health_router
+from src.api.rest.routes.invoices import (
+    router as invoices_router,
+)
 from src.api.rest.routes.purchase_order import (
     router as purchase_order_router,
 )
@@ -54,3 +57,4 @@ app.include_router(router=health_router)
 app.include_router(router=gmail_monitoring_router)
 app.include_router(router=gmail_webhook_router)
 app.include_router(router=purchase_order_router)
+app.include_router(router=invoices_router)

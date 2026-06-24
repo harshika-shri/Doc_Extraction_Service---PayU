@@ -1,46 +1,31 @@
 from pathlib import Path
 
+from src.core.services.purchase_order.po_extraction_orchestrator import (
+    POExtractionOrchestrator,
+)
 from src.schemas.po_extraction_schema import (
     POExtractionSchema,
-)
-from src.utils.llama_extract_utils import (
-    extract_purchase_order_document,
-)
-from src.utils.llama_document_parser import (
-    parse_po_llama_extraction,
 )
 
 
 class POExtractionService:
+    def __init__(self) -> None:
+        self._orchestrator = (
+            POExtractionOrchestrator()
+        )
+
     def extract_purchase_order(
         self,
         file_path: Path,
     ) -> POExtractionSchema:
-        raw_extraction = (
-            extract_purchase_order_document(
-                file_path,
-            )
-        )
+        return self._orchestrator.extract(
+            file_path,
+        ).extraction
 
-        return self.parse_purchase_order_from_raw(
-            raw_extraction,
-        )
-
-    def parse_purchase_order_from_raw(
+    def extract_purchase_order_with_confidence(
         self,
-        raw_extraction: str,
-    ) -> POExtractionSchema:
-        extraction = parse_po_llama_extraction(
-            raw_extraction,
+        file_path: Path,
+    ):
+        return self._orchestrator.extract(
+            file_path,
         )
-
-        print("\n" + "=" * 80)
-        print("PURCHASE ORDER STRUCTURED EXTRACTION")
-        print("=" * 80)
-        print(
-            extraction.model_dump_json(
-                indent=2,
-            ),
-        )
-
-        return extraction

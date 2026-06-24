@@ -1,11 +1,23 @@
 import json
 import re
+import time
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, TypeVar
 
+from pydantic import BaseModel, ValidationError
+
+from src.config.llm_config import (
+    GROQ_MODEL_EXTRACTION,
+    GROQ_MODEL_PARSE_INVOICE,
+)
 from src.config.settings import settings
 from src.core.exceptions.llm_exc import LLMServiceError
+
+TModel = TypeVar(
+    "TModel",
+    bound=BaseModel,
+)
 
 _THINKING_BLOCK_PATTERN = re.compile(
     "<"
@@ -117,6 +129,64 @@ def trim_raw_extraction_for_llm(
     return trimmed
 
 
+def extract_classification_snippet(
+    raw_extraction: str,
+    *,
+    max_chars: int,
+) -> str:
+    try:
+        payload = json.loads(
+            raw_extraction,
+        )
+    except json.JSONDecodeError:
+        return raw_extraction[
+            :max_chars
+        ]
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        return raw_extraction[
+            :max_chars
+        ]
+
+    document_text = payload.get(
+        "full_document_text",
+        "",
+    )
+
+    if isinstance(
+        document_text,
+        str,
+    ) and document_text.strip():
+        return document_text[
+            :max_chars
+        ]
+
+    return raw_extraction[
+        :max_chars
+    ]
+
+
+def _is_rate_limit_error(
+    error: LLMServiceError,
+) -> bool:
+    if error.status_code in {
+        413,
+        429,
+    }:
+        return True
+
+    detail = error.detail.lower()
+
+    return (
+        "rate_limit_exceeded" in detail
+        or "request too large" in detail
+        or "tokens per minute" in detail
+    )
+
+
 def _build_llm_error_detail(
     status_code: int,
     error_body: str,
@@ -213,8 +283,12 @@ def extract_chat_completion_text(
             provider="groq",
         )
 
-    message = choices[0].get("message", {})
+    choice = choices[0]
+    message = choice.get("message", {})
     content = message.get("content", "")
+    finish_reason = choice.get(
+        "finish_reason",
+    )
 
     if not content:
         raise LLMServiceError(
@@ -222,9 +296,40 @@ def extract_chat_completion_text(
             provider="groq",
         )
 
+    if finish_reason == "length":
+        raise LLMServiceError(
+            "LLM response was truncated before "
+            "completion. Increase "
+            "GROQ_LLM_MAX_TOKENS or reduce "
+            "input size.",
+            provider="groq",
+        )
+
     return extract_json_text(
         str(content).strip(),
     )
+
+
+def parse_llm_model(
+    response_text: str,
+    model_cls: type[TModel],
+) -> TModel:
+    json_text = extract_json_text(
+        response_text,
+    )
+
+    try:
+        return model_cls.model_validate_json(
+            json_text,
+        )
+    except ValidationError as error:
+        preview = json_text[:200]
+        raise LLMServiceError(
+            "LLM returned invalid JSON for "
+            f"{model_cls.__name__}: {error}. "
+            f"Preview: {preview}",
+            provider="groq",
+        ) from error
 
 
 def _validate_groq_configuration() -> None:
@@ -239,10 +344,19 @@ def call_groq_llm(
     prompt: str,
     *,
     model: str | None = None,
+    max_tokens: int | None = None,
+    max_retries: int = 2,
 ) -> str:
     _validate_groq_configuration()
 
-    selected_model = model or settings.GROQ_LLM_MODEL
+    selected_model = (
+        model or GROQ_MODEL_PARSE_INVOICE
+    )
+    selected_max_tokens = (
+        max_tokens
+        if max_tokens is not None
+        else settings.GROQ_LLM_MAX_TOKENS
+    )
     request_body: dict[str, Any] = {
         "model": selected_model,
         "messages": [
@@ -255,21 +369,158 @@ def call_groq_llm(
             },
         ],
         "temperature": 0,
+        "max_tokens": selected_max_tokens,
+        "response_format": {
+            "type": "json_object",
+        },
     }
 
-    response_payload = _post_groq_json(
-        request_body,
-        api_key=settings.GROQ_API_KEY,
+    last_error: LLMServiceError | None = None
+
+    for attempt in range(
+        max_retries + 1,
+    ):
+        try:
+            response_payload = _post_groq_json(
+                request_body,
+                api_key=settings.GROQ_API_KEY,
+            )
+
+            return extract_chat_completion_text(
+                response_payload,
+            )
+        except LLMServiceError as error:
+            last_error = error
+
+            if (
+                attempt < max_retries
+                and _is_rate_limit_error(
+                    error,
+                )
+            ):
+                time.sleep(
+                    5 * (attempt + 1),
+                )
+                continue
+
+            raise
+
+    if last_error is not None:
+        raise last_error
+
+    raise LLMServiceError(
+        "Groq API request failed.",
+        provider="groq",
     )
 
-    return extract_chat_completion_text(
-        response_payload,
+
+def call_groq_vision_llm(
+    prompt: str,
+    image_data_urls: list[str],
+    *,
+    model: str | None = None,
+    max_tokens: int | None = None,
+    max_retries: int = 2,
+) -> str:
+    _validate_groq_configuration()
+
+    if not image_data_urls:
+        raise LLMServiceError(
+            "At least one document image is required for vision extraction.",
+            provider="groq",
+            status_code=400,
+        )
+
+    selected_model = (
+        model or GROQ_MODEL_EXTRACTION
+    )
+    selected_max_tokens = (
+        max_tokens
+        if max_tokens is not None
+        else settings.GROQ_LLM_MAX_TOKENS
+    )
+
+    content: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": (
+                f"{prompt}\n\n"
+                "Return valid JSON only."
+            ),
+        },
+    ]
+
+    for image_data_url in image_data_urls:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": image_data_url,
+                },
+            },
+        )
+
+    request_body: dict[str, Any] = {
+        "model": selected_model,
+        "messages": [
+            {
+                "role": "user",
+                "content": content,
+            },
+        ],
+        "temperature": 0,
+        "max_tokens": selected_max_tokens,
+        "response_format": {
+            "type": "json_object",
+        },
+    }
+
+    last_error: LLMServiceError | None = None
+
+    for attempt in range(
+        max_retries + 1,
+    ):
+        try:
+            response_payload = _post_groq_json(
+                request_body,
+                api_key=settings.GROQ_API_KEY,
+                timeout=180,
+            )
+
+            return extract_chat_completion_text(
+                response_payload,
+            )
+        except LLMServiceError as error:
+            last_error = error
+
+            if (
+                attempt < max_retries
+                and _is_rate_limit_error(
+                    error,
+                )
+            ):
+                time.sleep(
+                    5 * (attempt + 1),
+                )
+                continue
+
+            raise
+
+    if last_error is not None:
+        raise last_error
+
+    raise LLMServiceError(
+        "Groq API request failed.",
+        provider="groq",
     )
 
 
 def call_groq_classification_llm(
     prompt: str,
+    *,
+    model: str,
 ) -> str:
     return call_groq_llm(
         prompt,
+        model=model,
     )

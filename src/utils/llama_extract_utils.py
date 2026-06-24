@@ -9,6 +9,7 @@ from typing import Any
 
 from src.config.settings import settings
 from src.constants.llama_extract_schemas import (
+    INVOICE_EXTRACTION_SCHEMA,
     INVOICE_RAW_EXTRACTION_SCHEMA,
     PURCHASE_ORDER_EXTRACTION_SCHEMA,
 )
@@ -432,6 +433,30 @@ def extract_invoice_document(
 
     print("\n" + "=" * 80)
     print("RAW LLAMA INVOICE EXTRACTION")
+    print("=" * 80)
+    print(
+        f"File: {file_path}",
+    )
+    print(raw_extraction)
+
+    return raw_extraction
+
+
+def extract_structured_invoice_document(
+    file_path: Path,
+) -> str:
+    raw_extraction = run_llama_extract_job(
+        file_path=file_path,
+        data_schema=INVOICE_EXTRACTION_SCHEMA,
+        system_prompt=(
+            "Extract invoice fields using the provided schema. "
+            "Map buyer company fields to company_* and supplier "
+            "fields to vendor_*. Capture every visible line item."
+        ),
+    )
+
+    print("\n" + "=" * 80)
+    print("STRUCTURED LLAMA INVOICE EXTRACTION")
     print("=" * 80)
     print(
         f"File: {file_path}",

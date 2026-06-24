@@ -219,6 +219,8 @@ def _parse_po_line_items(rows: list[str] | None) -> list[POLineItemExtractionSch
                     uom=str(row.get("uom")).strip() if row.get("uom") is not None else None,
                     quantity_ordered=_parse_decimal(row.get("quantity_ordered")),
                     unit_price=_parse_decimal(row.get("unit_price")),
+                    discount_amount=_parse_decimal(row.get("discount_amount")),
+                    tax_details=row.get("tax_details"),
                     line_total=_parse_decimal(row.get("line_total")),
                 ),
             )
@@ -269,6 +271,182 @@ def _parse_po_line_items(rows: list[str] | None) -> list[POLineItemExtractionSch
         )
 
     return line_items
+
+
+def _parse_structured_invoice_line_items(
+    rows: list[object] | None,
+) -> list[InvoiceLineItemExtractionSchema]:
+    line_items: list[InvoiceLineItemExtractionSchema] = []
+
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+
+        line_items.append(
+            InvoiceLineItemExtractionSchema(
+                line_number=row.get("line_number"),
+                item_code=(
+                    str(row.get("item_code")).strip()
+                    if row.get("item_code") is not None
+                    else None
+                ),
+                item_description=(
+                    str(row.get("item_description")).strip()
+                    if row.get("item_description") is not None
+                    else None
+                ),
+                uom=(
+                    str(row.get("uom")).strip()
+                    if row.get("uom") is not None
+                    else None
+                ),
+                quantity_billed=_parse_decimal(
+                    row.get("quantity_billed"),
+                ),
+                unit_price=_parse_decimal(
+                    row.get("unit_price"),
+                ),
+                discount_amount=_parse_decimal(
+                    row.get("discount_amount"),
+                ),
+                tax_details=row.get("tax_details"),
+                hsn_sac_code=(
+                    str(row.get("hsn_sac_code")).strip()
+                    if row.get("hsn_sac_code") is not None
+                    else None
+                ),
+                line_total=_parse_decimal(
+                    row.get("line_total"),
+                ),
+            ),
+        )
+
+    return line_items
+
+
+def _optional_str(
+    value: Any,
+) -> str | None:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+
+    return text or None
+
+
+def parse_structured_invoice_llama_extraction(
+    raw_text: str,
+) -> InvoiceExtractionSchema:
+    payload = _parse_json(raw_text)
+
+    po_numbers = payload.get(
+        "po_numbers_extracted",
+    )
+    if isinstance(
+        po_numbers,
+        str,
+    ):
+        po_numbers = [
+            po_numbers,
+        ]
+    elif not isinstance(
+        po_numbers,
+        list,
+    ):
+        po_numbers = None
+
+    vendor = InvoiceVendorExtractionSchema(
+        vendor_name=_optional_str(
+            payload.get("vendor_name"),
+        ),
+        vendor_gstin=_optional_str(
+            payload.get("vendor_gstin"),
+        ),
+        vendor_address=_optional_str(
+            payload.get("vendor_address"),
+        ),
+        vendor_email=_optional_str(
+            payload.get("vendor_email"),
+        ),
+        vendor_phone=_optional_str(
+            payload.get("vendor_phone"),
+        ),
+        bank_account_number=_optional_str(
+            payload.get("bank_account_number"),
+        ),
+        bank_name=_optional_str(
+            payload.get("bank_name"),
+        ),
+        ifsc_code=_optional_str(
+            payload.get("ifsc_code"),
+        ),
+        account_holder_name=_optional_str(
+            payload.get("account_holder_name"),
+        ),
+    )
+
+    has_vendor = any(
+        [
+            vendor.vendor_name,
+            vendor.vendor_gstin,
+            vendor.vendor_address,
+            vendor.vendor_email,
+            vendor.vendor_phone,
+            vendor.bank_account_number,
+            vendor.bank_name,
+            vendor.ifsc_code,
+            vendor.account_holder_name,
+        ],
+    )
+
+    return InvoiceExtractionSchema(
+        invoice_number=_optional_str(
+            payload.get("invoice_number"),
+        ),
+        invoice_date=_parse_date(
+            payload.get("invoice_date"),
+        ),
+        po_numbers_extracted=po_numbers,
+        due_date=_parse_date(
+            payload.get("due_date"),
+        ),
+        currency=_optional_str(
+            payload.get("currency"),
+        )
+        or "INR",
+        payment_terms=_optional_str(
+            payload.get("payment_terms"),
+        ),
+        subtotal_amount=_parse_decimal(
+            payload.get("subtotal_amount"),
+        ),
+        discount_amount=_parse_decimal(
+            payload.get("discount_amount"),
+        ),
+        tax_amount=_parse_decimal(
+            payload.get("tax_amount"),
+        ),
+        total_amount=_parse_decimal(
+            payload.get("total_amount"),
+        ),
+        notes=_optional_str(
+            payload.get("notes"),
+        ),
+        company_name=_optional_str(
+            payload.get("company_name"),
+        ),
+        company_gstin=_optional_str(
+            payload.get("company_gstin"),
+        ),
+        company_address=_optional_str(
+            payload.get("company_address"),
+        ),
+        vendor=vendor if has_vendor else None,
+        line_items=_parse_structured_invoice_line_items(
+            payload.get("line_items"),
+        ),
+    )
 
 
 def parse_invoice_llama_extraction(raw_text: str) -> InvoiceExtractionSchema:

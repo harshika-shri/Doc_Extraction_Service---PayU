@@ -1,3 +1,7 @@
+from src.config.llm_config import (
+    CLASSIFICATION_TEXT_LIMIT,
+    GROQ_MODEL_CLASSIFY,
+)
 from src.constants.document_type import (
     DocumentType,
 )
@@ -9,7 +13,8 @@ from src.schemas.document_classification_schema import (
 )
 from src.utils.llm_response_utils import (
     call_groq_llm,
-    trim_raw_extraction_for_llm,
+    extract_classification_snippet,
+    parse_llm_model,
 )
 
 
@@ -18,15 +23,20 @@ class DocumentClassificationService:
         self,
         raw_extraction: str,
     ) -> DocumentClassificationSchema:
-        response_text = call_groq_llm(
-            f"{CLASSIFICATION_PROMPT}\n"
-            f"{trim_raw_extraction_for_llm(raw_extraction)}",
+        snippet = extract_classification_snippet(
+            raw_extraction,
+            max_chars=CLASSIFICATION_TEXT_LIMIT,
         )
 
-        classification = (
-            DocumentClassificationSchema.model_validate_json(
-                response_text,
-            )
+        response_text = call_groq_llm(
+            f"{CLASSIFICATION_PROMPT}\n{snippet}",
+            model=GROQ_MODEL_CLASSIFY,
+            max_tokens=512,
+        )
+
+        classification = parse_llm_model(
+            response_text,
+            DocumentClassificationSchema,
         )
 
         print("\n" + "=" * 80)

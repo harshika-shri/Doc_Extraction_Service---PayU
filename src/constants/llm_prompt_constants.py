@@ -1,5 +1,5 @@
 CLASSIFICATION_PROMPT = """
-Classify the document using the raw extraction JSON provided below.
+Classify the document using the document text snippet below.
 Return JSON with this shape:
 {
   "document_type": "invoice" | "purchase_order" | "other",
@@ -12,7 +12,22 @@ Use "purchase_order" for PO documents or purchase orders.
 Use "other" for anything else such as receipts, contracts,
 delivery notes, images without business documents, or spam.
 
-Raw extraction JSON:
+Document text snippet:
+""".strip()
+
+CONFIDENCE_SCORE_PROMPT = """
+Score how confidently each extracted field matches a real invoice.
+Use 0-100 per field. Return JSON only:
+{
+  "field_scores": [
+    {"field_name": "invoice_number", "confidence": 95}
+  ]
+}
+
+Score only the non-null fields provided below.
+Use field_name exactly as shown (including vendor.* prefix).
+
+Extracted fields:
 """.strip()
 
 INVOICE_PARSE_PROMPT = """
