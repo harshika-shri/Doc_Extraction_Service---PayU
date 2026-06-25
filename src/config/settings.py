@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_STREAM_NAME: str = "extraction.events"
 
-    CELERY_TASK_DEFAULT_QUEUE: str = "default"
+    CELERY_TASK_DEFAULT_QUEUE: str = "extraction"
     CELERY_TASK_MAX_RETRIES: int = 3
     CELERY_TASK_RETRY_BACKOFF_SECONDS: int = 60
 
