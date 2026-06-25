@@ -1,9 +1,6 @@
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.services.gmail_notification_service import (
-    GmailNotificationService,
-)
 from src.data.models.postgres.gmail_monitoring_state import (
     GmailMonitoringState,
 )
@@ -83,44 +80,12 @@ class GmailMonitoringService:
             is_monitoring=True,
         )
 
-        refreshed_state = (
-            await self.repo.get_by_email(
-                email_address,
-            )
-        )
-
-        if refreshed_state is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=(
-                    "Failed to load monitoring state"
-                ),
-            )
-
-        notification_service = (
-            GmailNotificationService(
-                self.session,
-            )
-        )
-
-        processed_messages = (
-            await notification_service.process_pending_messages(
-                state=refreshed_state,
-                end_history_id=current_history_id,
-            )
-        )
-
         return {
             "message": (
                 "Monitoring started"
             ),
             "history_id": str(
                 current_history_id,
-            ),
-            "messages_processed": str(
-                len(
-                    processed_messages,
-                ),
             ),
         }
 

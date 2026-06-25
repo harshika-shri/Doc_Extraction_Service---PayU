@@ -33,6 +33,9 @@ from src.data.repositories.audit_log_repo import (
 from src.data.repositories.extraction_review_repo import (
     ExtractionReviewRepository,
 )
+from src.messaging.redis_stream_publisher import (
+    queue_extraction_completed,
+)
 from src.schemas.extraction_review_schema import (
     BankDetailsReview,
     CompanyDetailsReview,
@@ -227,6 +230,10 @@ class ExtractionReviewService:
             new_status=ExtractionStatus.EXTRACTION_APPROVED.value,
             remarks="Extraction manually approved after review",
             performed_by=current_user.id,
+        )
+
+        queue_extraction_completed(
+            invoice_id,
         )
 
         return ExtractionApproveResponse(

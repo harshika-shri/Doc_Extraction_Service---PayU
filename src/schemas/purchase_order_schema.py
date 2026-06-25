@@ -13,6 +13,13 @@ class PurchaseOrderUploadResponse(BaseModel):
     line_items_saved: int
 
 
+class PurchaseOrderUploadAcceptedResponse(BaseModel):
+    task_id: str
+    invoice_id: UUID | None = None
+    extraction_status: str
+    file_path: str
+
+
 class PurchaseOrderListItem(BaseModel):
     id: UUID
     po_number: str

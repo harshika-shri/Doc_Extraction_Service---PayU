@@ -1,4 +1,4 @@
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     GMAIL_TOKEN_PATH: str = "secrets/token.json"
     GMAIL_ATTACHMENT_DOWNLOAD_DIR: str = "downloads/attachments"
     PO_UPLOAD_DIR: str = "uploads/purchase_orders"
+
+    REDIS_HOST: str = "redis"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_STREAM_NAME: str = "extraction.events"
+
+    CELERY_TASK_DEFAULT_QUEUE: str = "default"
+    CELERY_TASK_MAX_RETRIES: int = 3
+    CELERY_TASK_RETRY_BACKOFF_SECONDS: int = 60
 
     LLAMA_CLOUD_API_KEY: str = Field(
         default="",
@@ -82,6 +91,19 @@ class Settings(BaseSettings):
             return value.strip()
 
         return value
+
+    @computed_field
+    @property
+    def CELERY_BROKER_URL(self) -> str:
+        return (
+            f"redis://{self.REDIS_HOST}:"
+            f"{self.REDIS_PORT}/{self.REDIS_DB}"
+        )
+
+    @computed_field
+    @property
+    def CELERY_RESULT_BACKEND(self) -> str:
+        return self.CELERY_BROKER_URL
 
     @model_validator(mode="after")
     def build_database_url(self) -> "Settings":

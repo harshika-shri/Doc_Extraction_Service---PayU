@@ -1,14 +1,16 @@
 import base64
 import json
 
-from fastapi import APIRouter, Depends, Request
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Request
 
-from src.api.rest.dependencies import (
-    get_db_session,
+from src.data.models.postgres.enums import (
+    ExtractionStatus,
 )
-from src.core.services.gmail_notification_service import (
-    GmailNotificationService,
+from src.schemas.extraction_task_schema import (
+    ExtractionTaskAcceptedResponse,
+)
+from src.tasks.extraction_tasks import (
+    process_invoice,
 )
 
 router = APIRouter(
@@ -19,13 +21,11 @@ router = APIRouter(
 
 @router.post(
     "/webhook",
+    response_model=ExtractionTaskAcceptedResponse,
 )
 async def gmail_webhook(
     request: Request,
-    db: AsyncSession = Depends(
-        get_db_session,
-    ),
-) -> dict[str, str]:
+) -> ExtractionTaskAcceptedResponse:
     payload = await request.json()
 
     print("\n" + "=" * 80)
@@ -52,13 +52,7 @@ async def gmail_webhook(
     print("=" * 80)
     print(gmail_data)
 
-    service = (
-        GmailNotificationService(
-            db,
-        )
-    )
-
-    return await service.process_notification(
+    task = process_invoice.delay(
         email_address=gmail_data[
             "emailAddress"
         ],
@@ -67,4 +61,10 @@ async def gmail_webhook(
                 "historyId"
             ],
         ),
+    )
+
+    return ExtractionTaskAcceptedResponse(
+        task_id=task.id,
+        invoice_id=None,
+        extraction_status=ExtractionStatus.PENDING.value,
     )

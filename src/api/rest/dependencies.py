@@ -11,6 +11,10 @@ from src.core.security.role_utils import parse_user_role
 from src.data.clients.postgres_client import (
     get_session_factory,
 )
+from src.messaging.post_commit import (
+    discard_pending_extraction_events,
+    publish_committed_extraction_events,
+)
 from src.data.models.postgres.enums import UserRole
 from src.data.models.postgres.users import User
 from src.data.repositories.user_repo import UserRepository
@@ -34,9 +38,11 @@ async def get_db_session(
             yield session
 
             await session.commit()
+            publish_committed_extraction_events()
 
         except Exception:
             await session.rollback()
+            discard_pending_extraction_events()
             raise
 
 
