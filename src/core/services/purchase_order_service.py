@@ -3,22 +3,26 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
 from src.constants.document_type import DocumentType
 from src.core.exceptions.llm_exc import LLMServiceError
+from src.core.exceptions.vendor_master_exc import (
+    VendorMasterOnboardingError,
+)
 from src.core.services.document_classifier_service import (
     DocumentClassifierService,
 )
 from src.core.services.po_extraction_service import (
     POExtractionService,
 )
+from src.core.services.vendor_master_service import (
+    VendorMasterService,
+)
 from src.data.models.postgres.purchase_orders import (
     PurchaseOrder,
 )
-from src.data.models.postgres.vendor_master import VendorMaster
 from src.data.models.postgres.users import User
 from src.data.repositories.po_line_item_repo import (
     POLineItemRepository,
@@ -32,6 +36,7 @@ from src.schemas.extraction_persistence_schema import (
 from src.schemas.po_extraction_schema import (
     POExtractionSchema,
     POLineItemExtractionSchema,
+    POVendorExtractionSchema,
 )
 from src.schemas.purchase_order_schema import (
     PurchaseOrderListItem,
@@ -99,6 +104,9 @@ class PurchaseOrderService:
         self.classifier_service = (
             DocumentClassifierService()
         )
+        self.vendor_master_service = VendorMasterService(
+            session,
+        )
 
     async def upload_purchase_order(
         self,
@@ -157,8 +165,7 @@ class PurchaseOrderService:
                 gcs_file_path=str(file_path),
                 company_id=current_user.company_id,
                 uploaded_by=current_user.id,
-                vendor_name=extraction.vendor_name,
-                vendor_gstin=extraction.vendor_gstin,
+                vendor=extraction.vendor,
             )
         )
 
@@ -208,8 +215,7 @@ class PurchaseOrderService:
         gcs_file_path: str,
         company_id: UUID,
         uploaded_by: UUID,
-        vendor_name: str | None = None,
-        vendor_gstin: str | None = None,
+        vendor: POVendorExtractionSchema | None = None,
     ) -> PurchaseOrder | None:
         po_number = payload.header_fields.get(
             "po_number",
@@ -241,10 +247,20 @@ class PurchaseOrderService:
                 ),
             )
 
-        vendor_id = await self._resolve_vendor_id(
-            vendor_name=vendor_name,
-            vendor_gstin=vendor_gstin,
-        )
+        try:
+            vendor_master = (
+                await self.vendor_master_service.resolve_or_create_vendor(
+                    vendor,
+                    po_number=str(
+                        po_number,
+                    ),
+                )
+            )
+        except VendorMasterOnboardingError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=error.detail,
+            ) from error
 
         purchase_order = (
             await self.purchase_order_repo.create(
@@ -255,8 +271,7 @@ class PurchaseOrderService:
             )
         )
 
-        if vendor_id is not None:
-            purchase_order.vendor_id = vendor_id
+        purchase_order.vendor_id = vendor_master.id
 
         for line_item_fields in payload.line_items:
             await self.po_line_item_repo.create(
@@ -272,38 +287,6 @@ class PurchaseOrderService:
         )
 
         return purchase_order
-
-    async def _resolve_vendor_id(
-        self,
-        vendor_name: str | None,
-        vendor_gstin: str | None,
-    ):
-        lookup_fields = [
-            (
-                VendorMaster.gstin,
-                vendor_gstin,
-            ),
-            (
-                VendorMaster.vendor_name,
-                vendor_name,
-            ),
-        ]
-
-        for column, value in lookup_fields:
-            if not value:
-                continue
-
-            result = await self.purchase_order_repo.execute(
-                select(VendorMaster.id).where(
-                    column == value,
-                ).limit(2),
-            )
-            ids = list(result.scalars().all())
-
-            if len(ids) == 1:
-                return ids[0]
-
-        return None
 
     async def _save_uploaded_file(
         self,

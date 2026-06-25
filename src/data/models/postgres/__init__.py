@@ -6,7 +6,7 @@ from .dispute_communications import DisputeCommunication
 from .disputes import Dispute
 from .extraction_field_confidence import ExtractionFieldConfidence
 from .gmail_monitoring_state import GmailMonitoringState
-from .invoice_emails import InvoiceEmail
+from .invoice_email import InvoiceEmail
 from .invoice_extracted_vendor import InvoiceExtractedVendor
 from .invoice_line_allocation_candidates import (
     InvoiceLineAllocationCandidateGroup,
@@ -22,6 +22,7 @@ from .invoice_po_resolution_groups import (
 from .invoice_review_summaries import InvoiceReviewSummary
 from .invoice_self_checks import InvoiceSelfCheck
 from .invoice_validation_issues import InvoiceValidationIssue
+from .notifications import Notification
 from .invoices import Invoice
 from .po_line_items import POLineItem
 from .purchase_orders import PurchaseOrder
