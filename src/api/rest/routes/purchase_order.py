@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.rest.dependencies import (
@@ -8,11 +8,17 @@ from src.api.rest.dependencies import (
 from src.core.services.purchase_order_service import (
     PurchaseOrderService,
 )
-from src.data.models.postgres.enums import UserRole
+from src.data.models.postgres.enums import (
+    ExtractionStatus,
+    UserRole,
+)
 from src.data.models.postgres.users import User
 from src.schemas.purchase_order_schema import (
     PurchaseOrderListResponse,
-    PurchaseOrderUploadResponse,
+    PurchaseOrderUploadAcceptedResponse,
+)
+from src.tasks.extraction_tasks import (
+    process_purchase_order,
 )
 
 router = APIRouter(
@@ -23,7 +29,8 @@ router = APIRouter(
 
 @router.post(
     "/upload",
-    response_model=PurchaseOrderUploadResponse,
+    response_model=PurchaseOrderUploadAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def upload_purchase_order(
     file: UploadFile = File(
@@ -38,14 +45,34 @@ async def upload_purchase_order(
             UserRole.FINANCE_MANAGER,
         ),
     ),
-) -> PurchaseOrderUploadResponse:
+) -> PurchaseOrderUploadAcceptedResponse:
     service = PurchaseOrderService(
         db,
     )
 
-    return await service.upload_purchase_order(
-        file=file,
-        current_user=current_user,
+    file_path = await service.stage_purchase_order_upload(
+        file,
+    )
+
+    task = process_purchase_order.delay(
+        file_path=str(
+            file_path,
+        ),
+        company_id=str(
+            current_user.company_id,
+        ),
+        uploaded_by=str(
+            current_user.id,
+        ),
+    )
+
+    return PurchaseOrderUploadAcceptedResponse(
+        task_id=task.id,
+        invoice_id=None,
+        extraction_status=ExtractionStatus.PENDING.value,
+        file_path=str(
+            file_path,
+        ),
     )
 
 

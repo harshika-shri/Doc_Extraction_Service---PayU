@@ -113,20 +113,89 @@ class PurchaseOrderService:
         file: UploadFile,
         current_user: User,
     ) -> PurchaseOrderUploadResponse:
+        file_path = await self.stage_purchase_order_upload(
+            file,
+        )
+        purchase_order, line_items_saved = (
+            await self.process_saved_purchase_order(
+                file_path=str(
+                    file_path,
+                ),
+                company_id=current_user.company_id,
+                uploaded_by=current_user.id,
+            )
+        )
+
+        return PurchaseOrderUploadResponse(
+            id=purchase_order.id,
+            po_number=purchase_order.po_number,
+            po_date=purchase_order.po_date,
+            status=purchase_order.status.value,
+            gcs_file_path=purchase_order.gcs_file_path,
+            line_items_saved=line_items_saved,
+        )
+
+    async def stage_purchase_order_upload(
+        self,
+        file: UploadFile,
+    ) -> Path:
         if not file.filename:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Uploaded file must have a filename.",
             )
 
-        file_path = await self._save_uploaded_file(
+        return await self._save_uploaded_file(
             file,
         )
+
+    async def process_saved_purchase_order(
+        self,
+        *,
+        file_path: str,
+        company_id: UUID,
+        uploaded_by: UUID,
+    ) -> tuple[
+        PurchaseOrder,
+        int,
+    ]:
+        path = Path(
+            file_path,
+        )
+
+        if not path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    "Uploaded purchase order file was not found "
+                    f"at {file_path}."
+                ),
+            )
+
+        if await self.file_already_processed(
+            file_path,
+        ):
+            existing = (
+                await self.purchase_order_repo.get_by_gcs_file_path(
+                    file_path,
+                )
+            )
+
+            if existing is None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=(
+                        "Purchase order file was already processed "
+                        "but the record could not be loaded."
+                    ),
+                )
+
+            return existing, 0
 
         try:
             classification = (
                 self.classifier_service.classify_document(
-                    file_path,
+                    path,
                 )
             )
 
@@ -146,7 +215,7 @@ class PurchaseOrderService:
 
             extraction = (
                 self.po_extraction_service.extract_purchase_order(
-                    file_path,
+                    path,
                 )
             )
         except LLMServiceError as error:
@@ -162,9 +231,9 @@ class PurchaseOrderService:
         purchase_order = (
             await self.save_extracted_purchase_order(
                 payload=payload,
-                gcs_file_path=str(file_path),
-                company_id=current_user.company_id,
-                uploaded_by=current_user.id,
+                gcs_file_path=file_path,
+                company_id=company_id,
+                uploaded_by=uploaded_by,
                 vendor=extraction.vendor,
             )
         )
@@ -178,15 +247,8 @@ class PurchaseOrderService:
                 ),
             )
 
-        return PurchaseOrderUploadResponse(
-            id=purchase_order.id,
-            po_number=purchase_order.po_number,
-            po_date=purchase_order.po_date,
-            status=purchase_order.status.value,
-            gcs_file_path=purchase_order.gcs_file_path,
-            line_items_saved=len(
-                payload.line_items,
-            ),
+        return purchase_order, len(
+            payload.line_items,
         )
 
     async def file_already_processed(

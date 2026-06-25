@@ -12,6 +12,12 @@ from src.core.services.invoice_extraction_service import (
 from src.core.services.invoice_service import (
     InvoiceService,
 )
+from src.data.models.postgres.enums import (
+    ExtractionStatus,
+)
+from src.messaging.redis_stream_publisher import (
+    queue_extraction_completed,
+)
 from src.schemas.gmail_message_schema import (
     GmailAttachmentSchema,
     GmailMessageSchema,
@@ -146,7 +152,7 @@ class DocumentProcessingService:
             )
         )
 
-        await self.invoice_service.save_extracted_invoice(
+        invoice = await self.invoice_service.save_extracted_invoice(
             extraction=extraction_result.extraction,
             gcs_file_path=str(file_path),
             received_email=message.sender_email,
@@ -157,6 +163,14 @@ class DocumentProcessingService:
             confidence_records=confidence_records,
             has_low_confidence=has_low_confidence,
         )
+
+        if (
+            invoice.extraction_status
+            == ExtractionStatus.EXTRACTION_APPROVED
+        ):
+            queue_extraction_completed(
+                invoice.id,
+            )
 
         print(
             f"Invoice processing completed for: "

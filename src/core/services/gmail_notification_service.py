@@ -11,6 +11,10 @@ from src.core.services.document_processing_service import (
 from src.core.services.invoice_service import (
     InvoiceService,
 )
+from src.messaging.post_commit import (
+    discard_pending_extraction_events,
+    publish_committed_extraction_events,
+)
 from src.data.models.postgres.gmail_monitoring_state import (
     GmailMonitoringState,
 )
@@ -198,6 +202,8 @@ class GmailNotificationService:
                     processed_messages.append(
                         message,
                     )
+                    await self.session.commit()
+                    publish_committed_extraction_events()
                 except Exception:
                     print(
                         f"\nFailed to process message "
@@ -205,6 +211,7 @@ class GmailNotificationService:
                     )
                     traceback.print_exc()
                     await self.session.rollback()
+                    discard_pending_extraction_events()
 
             refreshed_state = (
                 await self.repo.get_by_email(
