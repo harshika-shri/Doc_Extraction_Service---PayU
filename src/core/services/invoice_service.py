@@ -140,9 +140,9 @@ class InvoiceService:
             )
 
         extraction_status = (
-            ExtractionStatus.LOW_CONFIDENCE
+            ExtractionStatus.HUMAN_REVIEW_NEEDED
             if has_low_confidence
-            else ExtractionStatus.EXTRACTED
+            else ExtractionStatus.EXTRACTION_APPROVED
         )
 
         invoice = await self.invoice_repo.create(
@@ -471,3 +471,14 @@ class InvoiceService:
             )
 
         return line_values
+
+    def normalize_line_item(
+        self,
+        line_item: InvoiceLineItemExtractionSchema,
+        *,
+        index: int,
+    ) -> dict[str, Any] | None:
+        return self._build_line_item_values(
+            line_item,
+            index=index,
+        )
