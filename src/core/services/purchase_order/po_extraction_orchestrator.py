@@ -12,6 +12,9 @@ from src.core.services.purchase_order.po_header_extraction_service import (
 from src.core.services.purchase_order.po_line_item_extraction_service import (
     POLineItemExtractionService,
 )
+from src.core.services.purchase_order.po_vendor_extraction_service import (
+    POVendorExtractionService,
+)
 from src.schemas.extraction_persistence_schema import (
     ConfidenceRecordPayload,
 )
@@ -34,6 +37,9 @@ class POExtractionOrchestrator:
         self.company_service = (
             POCompanyExtractionService()
         )
+        self.vendor_service = (
+            POVendorExtractionService()
+        )
         self.line_item_service = (
             POLineItemExtractionService()
         )
@@ -48,8 +54,23 @@ class POExtractionOrchestrator:
         company = self.company_service.extract(
             file_path,
         )
+        vendor_result = self.vendor_service.extract(
+            file_path,
+        )
         line_items = self.line_item_service.extract(
             file_path,
+        )
+
+        vendor = vendor_result.vendor
+        vendor_name = (
+            vendor.vendor_name
+            if vendor is not None
+            else None
+        )
+        vendor_gstin = (
+            vendor.vendor_gstin
+            if vendor is not None
+            else None
         )
 
         extraction = POExtractionSchema(
@@ -60,12 +81,16 @@ class POExtractionOrchestrator:
             total_amount=header.total_amount,
             company_name=company.company_name,
             company_gstin=company.company_gstin,
+            vendor_name=vendor_name,
+            vendor_gstin=vendor_gstin,
+            vendor=vendor,
             line_items=line_items.line_items,
         )
 
         confidence_records = [
             *header.confidence_records,
             *company.confidence_records,
+            *vendor_result.confidence_records,
             *line_items.confidence_records,
         ]
 
