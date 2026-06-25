@@ -6,6 +6,9 @@ from sqlalchemy import text
 
 from src.api.rest.middleware.cors import add_cors_middleware
 from src.api.rest.middleware.error_handler import add_error_handlers
+from src.api.rest.routes.extractions import (
+    router as extractions_router,
+)
 from src.api.rest.routes.gmail_monitoring import (
     router as gmail_monitoring_router,
 )
@@ -58,3 +61,4 @@ app.include_router(router=gmail_monitoring_router)
 app.include_router(router=gmail_webhook_router)
 app.include_router(router=purchase_order_router)
 app.include_router(router=invoices_router)
+app.include_router(router=extractions_router)
