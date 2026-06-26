@@ -8,17 +8,11 @@ from src.api.rest.dependencies import (
 from src.core.services.purchase_order_service import (
     PurchaseOrderService,
 )
-from src.data.models.postgres.enums import (
-    ExtractionStatus,
-    UserRole,
-)
+from src.data.models.postgres.enums import UserRole
 from src.data.models.postgres.users import User
 from src.schemas.purchase_order_schema import (
     PurchaseOrderListResponse,
-    PurchaseOrderUploadAcceptedResponse,
-)
-from src.tasks.extraction_tasks import (
-    process_purchase_order,
+    PurchaseOrderUploadResponse,
 )
 
 router = APIRouter(
@@ -29,8 +23,8 @@ router = APIRouter(
 
 @router.post(
     "/upload",
-    response_model=PurchaseOrderUploadAcceptedResponse,
-    status_code=status.HTTP_202_ACCEPTED,
+    response_model=PurchaseOrderUploadResponse,
+    status_code=status.HTTP_201_CREATED,
 )
 async def upload_purchase_order(
     file: UploadFile = File(
@@ -45,34 +39,14 @@ async def upload_purchase_order(
             UserRole.FINANCE_MANAGER,
         ),
     ),
-) -> PurchaseOrderUploadAcceptedResponse:
+) -> PurchaseOrderUploadResponse:
     service = PurchaseOrderService(
         db,
     )
 
-    file_path = await service.stage_purchase_order_upload(
+    return await service.upload_purchase_order(
         file,
-    )
-
-    task = process_purchase_order.delay(
-        file_path=str(
-            file_path,
-        ),
-        company_id=str(
-            current_user.company_id,
-        ),
-        uploaded_by=str(
-            current_user.id,
-        ),
-    )
-
-    return PurchaseOrderUploadAcceptedResponse(
-        task_id=task.id,
-        invoice_id=None,
-        extraction_status=ExtractionStatus.PENDING.value,
-        file_path=str(
-            file_path,
-        ),
+        current_user,
     )
 
 

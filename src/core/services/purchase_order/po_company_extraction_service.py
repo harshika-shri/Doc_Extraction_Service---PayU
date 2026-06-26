@@ -37,6 +37,7 @@ class POCompanyExtractionService(
         payload = self._extract_payload(
             file_path,
             PO_COMPANY_PROMPT,
+            max_tokens=256,
         )
         fields = self._parse_fields(
             payload,

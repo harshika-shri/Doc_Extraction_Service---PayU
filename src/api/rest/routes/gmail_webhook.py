@@ -12,6 +12,13 @@ from src.schemas.extraction_task_schema import (
 from src.tasks.extraction_tasks import (
     process_invoice,
 )
+from src.utils.gmail_history_cache import (
+    is_monitoring_active,
+)
+from src.utils.gmail_notification_coordinator import (
+    should_enqueue_gmail_worker,
+    update_pending_history_id,
+)
 
 router = APIRouter(
     prefix="/gmail",
@@ -52,15 +59,60 @@ async def gmail_webhook(
     print("=" * 80)
     print(gmail_data)
 
-    task = process_invoice.delay(
-        email_address=gmail_data[
-            "emailAddress"
+    email_address = gmail_data[
+        "emailAddress"
+    ]
+    history_id = int(
+        gmail_data[
+            "historyId"
         ],
-        history_id=int(
-            gmail_data[
-                "historyId"
-            ],
-        ),
+    )
+
+    if not is_monitoring_active(
+        email_address,
+    ):
+        print(
+            "Skipping Gmail webhook for "
+            f"{email_address}: monitoring is inactive.",
+        )
+
+        return ExtractionTaskAcceptedResponse(
+            task_id="skipped-monitoring-inactive",
+            invoice_id=None,
+            extraction_status=ExtractionStatus.PENDING.value,
+        )
+
+    target_history_id = update_pending_history_id(
+        email_address,
+        history_id,
+    )
+
+    if not should_enqueue_gmail_worker(
+        email_address,
+        target_history_id,
+    ):
+        print(
+            "Skipping Gmail webhook enqueue for "
+            f"{email_address}: "
+            f"history_id={target_history_id} "
+            "(stale notification or worker already active).",
+        )
+
+        return ExtractionTaskAcceptedResponse(
+            task_id="skipped-duplicate-notification",
+            invoice_id=None,
+            extraction_status=ExtractionStatus.PENDING.value,
+        )
+
+    task = process_invoice.delay(
+        email_address=email_address,
+        history_id=target_history_id,
+    )
+
+    print(
+        f"Queued Celery task process_invoice: "
+        f"task_id={task.id}, "
+        f"history_id={target_history_id}",
     )
 
     return ExtractionTaskAcceptedResponse(

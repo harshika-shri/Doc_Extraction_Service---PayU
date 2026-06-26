@@ -27,6 +27,23 @@ class GmailMonitoringRepository(BaseRepository):
             result.scalar_one_or_none(),
         )
 
+    async def list_active(
+        self,
+    ) -> list[GmailMonitoringState]:
+        stmt = select(
+            GmailMonitoringState,
+        ).where(
+            GmailMonitoringState.is_monitoring.is_(
+                True,
+            ),
+        )
+
+        result = await self.execute(stmt)
+
+        return list(
+            result.scalars().all(),
+        )
+
     async def create(
         self,
         state: GmailMonitoringState,
@@ -58,10 +75,5 @@ class GmailMonitoringRepository(BaseRepository):
         )
 
         await self.session.flush()
-        await self.session.commit()
-
-        await self.session.refresh(
-            state,
-        )
 
         return state

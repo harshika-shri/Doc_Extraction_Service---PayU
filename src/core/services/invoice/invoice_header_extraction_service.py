@@ -43,6 +43,7 @@ class InvoiceHeaderExtractionService(
         payload = self._extract_payload(
             file_path,
             INVOICE_HEADER_PROMPT,
+            max_tokens=512,
         )
         fields = self._parse_fields(
             payload,

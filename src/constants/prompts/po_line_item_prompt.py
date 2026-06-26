@@ -1,44 +1,6 @@
-PO_LINE_ITEM_PROMPT = """Read the purchase order image.
+PO_LINE_ITEM_PROMPT = """Extract all line items from the purchase order image. One object per line item row.
 
-Extract all purchase order line items.
+Rules: numeric amounts (no currency symbols), dates as YYYY-MM-DD, uom examples: EA NOS PCS KG HR, null for absent fields.
 
-For every extracted field return:
-
-{
-  "value": extracted_value,
-  "confidence": confidence_score
-}
-
-IMPORTANT:
-
-If a field is not present in the document:
-
-Return:
-
-null
-
-DO NOT assign confidence.
-
-Missing fields are not low-confidence fields.
-
-Confidence should only be assigned when a value is actually extracted.
-
-Use low confidence only when text is blurry, partially visible, occluded, distorted, ambiguous, or difficult to read.
-
-Return JSON only.
-
-{
-  "line_items": [
-    {
-      "line_number": {},
-      "item_code": {},
-      "item_description": {},
-      "uom": {},
-      "quantity_ordered": {},
-      "unit_price": {},
-      "discount_amount": {},
-      "tax_details": {},
-      "line_total": {}
-    }
-  ]
-}"""
+Return JSON only:
+{"line_items": [{"line_number": 1, "item_code": "SKU-001", "item_description": "Item desc", "uom": "EA", "quantity_ordered": 10, "unit_price": 100.0, "discount_amount": 0, "tax_details": null, "line_total": 1000.0}]}"""

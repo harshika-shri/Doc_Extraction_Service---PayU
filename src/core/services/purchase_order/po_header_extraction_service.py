@@ -42,6 +42,7 @@ class POHeaderExtractionService(
         payload = self._extract_payload(
             file_path,
             PO_HEADER_PROMPT,
+            max_tokens=512,
         )
         fields = self._parse_fields(
             payload,

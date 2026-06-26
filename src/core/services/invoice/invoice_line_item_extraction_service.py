@@ -45,7 +45,7 @@ class InvoiceLineItemExtractionService(
         payload = self._extract_payload(
             file_path,
             INVOICE_LINE_ITEM_PROMPT,
-            max_tokens=4096,
+            max_tokens=1500,
         )
         line_items, confidence_records = (
             self._parse_line_items(

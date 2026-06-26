@@ -31,6 +31,7 @@ class DocumentClassifierService(
             DOCUMENT_CLASSIFIER_PROMPT,
             model=GROQ_MODEL_CLASSIFY,
             max_tokens=512,
+            max_pdf_pages=1,
         )
 
         classification = (

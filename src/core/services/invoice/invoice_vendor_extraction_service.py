@@ -39,6 +39,7 @@ class InvoiceVendorExtractionService(
         payload = self._extract_payload(
             file_path,
             INVOICE_VENDOR_PROMPT,
+            max_tokens=768,
         )
         fields = self._parse_fields(
             payload,

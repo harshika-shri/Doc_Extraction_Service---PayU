@@ -6,6 +6,7 @@ from typing import Any
 
 from src.config.llm_config import (
     GROQ_MODEL_EXTRACTION,
+    INVOICE_EXTRACTION_MAX_PDF_PAGES,
 )
 from src.utils.document_image_utils import (
     build_document_image_data_urls,
@@ -24,9 +25,15 @@ class BaseVisionExtractionService:
         *,
         model: str | None = None,
         max_tokens: int | None = None,
+        max_pdf_pages: int | None = None,
     ) -> dict[str, Any]:
         image_data_urls = build_document_image_data_urls(
             file_path,
+            max_pdf_pages=(
+                max_pdf_pages
+                if max_pdf_pages is not None
+                else INVOICE_EXTRACTION_MAX_PDF_PAGES
+            ),
         )
         response_text = call_groq_vision_llm(
             prompt,

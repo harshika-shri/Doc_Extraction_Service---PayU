@@ -22,7 +22,13 @@ from src.api.rest.routes.invoices import (
 from src.api.rest.routes.purchase_order import (
     router as purchase_order_router,
 )
-from src.data.clients.postgres_client import get_or_create_engine
+from src.data.clients.postgres_client import (
+    get_or_create_engine,
+    get_session_factory,
+)
+from src.core.services.gmail_startup_service import (
+    resume_active_monitoring,
+)
 
 
 @asynccontextmanager
@@ -35,6 +41,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await conn.execute(text("SELECT 1"))
 
         print("Database connected")
+
+        session_factory = get_session_factory()
+
+        async with session_factory() as session:
+            await resume_active_monitoring(
+                session,
+            )
 
     except Exception as e:
         print("Database connection failed")

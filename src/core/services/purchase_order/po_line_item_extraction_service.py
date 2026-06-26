@@ -45,7 +45,7 @@ class POLineItemExtractionService(
         payload = self._extract_payload(
             file_path,
             PO_LINE_ITEM_PROMPT,
-            max_tokens=4096,
+            max_tokens=1500,
         )
         line_items, confidence_records = (
             self._parse_line_items(
@@ -112,6 +112,13 @@ class POLineItemExtractionService(
                 values[
                     "line_number"
                 ] = index
+
+            if not values.get(
+                "uom",
+            ):
+                values[
+                    "uom"
+                ] = "EA"
 
             line_items.append(
                 POLineItemExtractionSchema(

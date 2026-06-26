@@ -187,6 +187,40 @@ def _is_rate_limit_error(
     )
 
 
+def _parse_retry_after_seconds(
+    error: LLMServiceError,
+) -> float | None:
+    """Extract the suggested retry-after delay from a Groq 429 error message."""
+    import re as _re
+
+    minute_match = _re.search(
+        r"try again in (\d+)m([\d.]+)s",
+        error.detail,
+        flags=_re.IGNORECASE,
+    )
+
+    if minute_match:
+        return (
+            int(minute_match.group(1)) * 60
+            + float(minute_match.group(2))
+            + 1
+        )
+
+    second_match = _re.search(
+        r"try again in ([\d.]+)s",
+        error.detail,
+        flags=_re.IGNORECASE,
+    )
+
+    if second_match:
+        return float(second_match.group(1)) + 1
+
+    return None
+
+
+_SHORT_RATE_LIMIT_THRESHOLD_SECONDS = 65
+_INLINE_MAX_RETRIES = 5
+
 def _build_llm_error_detail(
     status_code: int,
     error_body: str,
@@ -219,6 +253,35 @@ def _build_llm_error_detail(
         f"Groq API request failed with HTTP "
         f"{status_code}."
     )
+
+
+def _is_qwen_model(
+    model: str,
+) -> bool:
+    return "qwen" in model.lower()
+
+
+def _is_json_validate_failed(
+    error: LLMServiceError,
+) -> bool:
+    return (
+        error.status_code == 400
+        and "json_validate_failed" in error.detail
+    )
+
+
+def _configure_groq_json_request(
+    request_body: dict[str, Any],
+    *,
+    model: str,
+) -> None:
+    if not _is_qwen_model(
+        model,
+    ):
+        return
+
+    request_body["reasoning_effort"] = "none"
+    request_body["reasoning_format"] = "parsed"
 
 
 def _post_groq_json(
@@ -374,11 +437,15 @@ def call_groq_llm(
             "type": "json_object",
         },
     }
+    _configure_groq_json_request(
+        request_body,
+        model=selected_model,
+    )
 
     last_error: LLMServiceError | None = None
 
     for attempt in range(
-        max_retries + 1,
+        _INLINE_MAX_RETRIES + 1,
     ):
         try:
             response_payload = _post_groq_json(
@@ -393,15 +460,45 @@ def call_groq_llm(
             last_error = error
 
             if (
-                attempt < max_retries
+                attempt == 0
+                and _is_json_validate_failed(
+                    error,
+                )
+                and "response_format" in request_body
+            ):
+                request_body.pop(
+                    "response_format",
+                    None,
+                )
+                request_body.pop(
+                    "reasoning_effort",
+                    None,
+                )
+                request_body.pop(
+                    "reasoning_format",
+                    None,
+                )
+                continue
+
+            if (
+                attempt < _INLINE_MAX_RETRIES
                 and _is_rate_limit_error(
                     error,
                 )
             ):
-                time.sleep(
-                    5 * (attempt + 1),
+                wait = _parse_retry_after_seconds(
+                    error,
                 )
-                continue
+
+                if (
+                    wait is not None
+                    and wait
+                    < _SHORT_RATE_LIMIT_THRESHOLD_SECONDS
+                ):
+                    time.sleep(wait)
+                    continue
+
+                raise
 
             raise
 
@@ -474,11 +571,15 @@ def call_groq_vision_llm(
             "type": "json_object",
         },
     }
+    _configure_groq_json_request(
+        request_body,
+        model=selected_model,
+    )
 
     last_error: LLMServiceError | None = None
 
     for attempt in range(
-        max_retries + 1,
+        _INLINE_MAX_RETRIES + 1,
     ):
         try:
             response_payload = _post_groq_json(
@@ -494,15 +595,45 @@ def call_groq_vision_llm(
             last_error = error
 
             if (
-                attempt < max_retries
+                attempt == 0
+                and _is_json_validate_failed(
+                    error,
+                )
+                and "response_format" in request_body
+            ):
+                request_body.pop(
+                    "response_format",
+                    None,
+                )
+                request_body.pop(
+                    "reasoning_effort",
+                    None,
+                )
+                request_body.pop(
+                    "reasoning_format",
+                    None,
+                )
+                continue
+
+            if (
+                attempt < _INLINE_MAX_RETRIES
                 and _is_rate_limit_error(
                     error,
                 )
             ):
-                time.sleep(
-                    5 * (attempt + 1),
+                wait = _parse_retry_after_seconds(
+                    error,
                 )
-                continue
+
+                if (
+                    wait is not None
+                    and wait
+                    < _SHORT_RATE_LIMIT_THRESHOLD_SECONDS
+                ):
+                    time.sleep(wait)
+                    continue
+
+                raise
 
             raise
 

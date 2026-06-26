@@ -21,6 +21,10 @@ from src.schemas.gmail_monitoring_schema import (
 from src.tasks.extraction_tasks import (
     process_invoice,
 )
+from src.utils.gmail_notification_coordinator import (
+    should_enqueue_gmail_worker,
+    update_pending_history_id,
+)
 
 router = APIRouter(
     prefix="/gmail-monitoring",
@@ -48,17 +52,29 @@ async def start_monitoring(
         payload.email_address,
     )
 
-    task = process_invoice.delay(
-        email_address=payload.email_address,
-        history_id=int(
+    target_history_id = update_pending_history_id(
+        payload.email_address,
+        int(
             result[
                 "history_id"
             ],
         ),
     )
 
+    task_id = "skipped-worker-active"
+
+    if should_enqueue_gmail_worker(
+        payload.email_address,
+        target_history_id,
+    ):
+        task = process_invoice.delay(
+            email_address=payload.email_address,
+            history_id=target_history_id,
+        )
+        task_id = task.id
+
     return ExtractionTaskAcceptedResponse(
-        task_id=task.id,
+        task_id=task_id,
         invoice_id=None,
         extraction_status=ExtractionStatus.PENDING.value,
     )

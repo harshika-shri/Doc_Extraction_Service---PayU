@@ -18,8 +18,14 @@ from src.core.services.purchase_order_service import (
     PurchaseOrderService,
 )
 from src.utils.celery_async import run_async_in_worker
+from src.utils.gmail_notification_coordinator import (
+    release_gmail_worker,
+    resolve_target_history_id,
+    should_enqueue_gmail_worker,
+)
 from src.utils.redis_lock import mailbox_processing_lock
 from src.utils.transient_errors import (
+    get_retry_countdown_for_error,
     is_permanent_business_error,
     is_transient_error,
 )
@@ -131,6 +137,7 @@ async def _run_gmail_invoice_processing(
     *,
     email_address: str,
     history_id: int,
+    task_id: str = "unknown",
 ) -> dict[str, str]:
     service = GmailNotificationService(
         session,
@@ -139,6 +146,7 @@ async def _run_gmail_invoice_processing(
     return await service.process_notification(
         email_address=email_address,
         history_id=history_id,
+        task_id=task_id,
     )
 
 
@@ -194,23 +202,54 @@ def process_invoice(
             task_name,
             self.request.id,
         )
+        target_history_id = resolve_target_history_id(
+            email_address,
+            history_id,
+        )
+        print(
+            f"[celery] {task_name} started "
+            f"task_id={self.request.id} "
+            f"email={email_address} "
+            f"history_id={target_history_id}",
+        )
 
         with mailbox_processing_lock(
             email_address,
         ):
+            _task_id = self.request.id or "unknown"
             result = run_async_in_worker(
                 lambda session: _run_gmail_invoice_processing(
                     session,
                     email_address=email_address,
-                    history_id=history_id,
+                    history_id=target_history_id,
+                    task_id=_task_id,
                 ),
             )
+
+        follow_up_history_id = release_gmail_worker(
+            email_address,
+        )
+
+        if follow_up_history_id is not None:
+            if should_enqueue_gmail_worker(
+                email_address,
+                follow_up_history_id,
+            ):
+                process_invoice.delay(
+                    email_address=email_address,
+                    history_id=follow_up_history_id,
+                )
 
         _log_task_completed(
             task_name,
             self.request.id,
             started_at=started_at,
             result=result,
+        )
+        print(
+            f"[celery] {task_name} completed "
+            f"task_id={self.request.id} "
+            f"result={result}",
         )
 
         return {
@@ -231,11 +270,19 @@ def process_invoice(
         if is_permanent_business_error(
             error,
         ):
+            release_gmail_worker(
+                email_address,
+            )
             _log_task_failed(
                 task_name,
                 self.request.id,
                 started_at=started_at,
                 error=error,
+            )
+            print(
+                f"[celery] {task_name} failed "
+                f"(permanent) task_id={self.request.id} "
+                f"error={error}",
             )
 
             reason = str(
@@ -267,18 +314,36 @@ def process_invoice(
                 retries=self.request.retries,
                 error=error,
             )
+            print(
+                f"[celery] {task_name} retrying "
+                f"task_id={self.request.id} "
+                f"attempt={self.request.retries + 1} "
+                f"error={error}",
+            )
             raise self.retry(
                 exc=error,
-                countdown=_retry_countdown(
-                    self.request.retries,
+                countdown=get_retry_countdown_for_error(
+                    error,
+                    retries=self.request.retries,
+                    default_backoff_seconds=_retry_countdown(
+                        self.request.retries,
+                    ),
                 ),
             ) from error
 
+        release_gmail_worker(
+            email_address,
+        )
         _log_task_failed(
             task_name,
             self.request.id,
             started_at=started_at,
             error=error,
+        )
+        print(
+            f"[celery] {task_name} failed "
+            f"task_id={self.request.id} "
+            f"error={error}",
         )
         raise
 
@@ -383,8 +448,12 @@ def process_purchase_order(
             )
             raise self.retry(
                 exc=error,
-                countdown=_retry_countdown(
-                    self.request.retries,
+                countdown=get_retry_countdown_for_error(
+                    error,
+                    retries=self.request.retries,
+                    default_backoff_seconds=_retry_countdown(
+                        self.request.retries,
+                    ),
                 ),
             ) from error
 

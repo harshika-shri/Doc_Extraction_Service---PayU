@@ -1,36 +1,7 @@
-PO_HEADER_PROMPT = """Read the purchase order image.
+PO_HEADER_PROMPT = """Extract purchase order header fields from the image. Buyer is the company issuing the PO.
 
-Buyer company is the company issuing the PO.
+For each field, return {"value": <extracted>, "confidence": <0-100>} if present, or null if absent.
+Confidence: 100=clear, lower only when text is blurry/ambiguous/partial. Missing fields are NOT low-confidence.
 
-For every extracted field return:
-
-{
-  "value": extracted_value,
-  "confidence": confidence_score
-}
-
-IMPORTANT:
-
-If a field is not present in the document:
-
-Return:
-
-null
-
-DO NOT assign confidence.
-
-Missing fields are not low-confidence fields.
-
-Confidence should only be assigned when a value is actually extracted.
-
-Use low confidence only when text is blurry, partially visible, occluded, distorted, ambiguous, or difficult to read.
-
-Return JSON only.
-
-{
-  "po_number": {},
-  "po_date": {},
-  "subtotal_amount": {},
-  "tax_amount": {},
-  "total_amount": {}
-}"""
+Return JSON only:
+{"po_number": {}, "po_date": {}, "subtotal_amount": {}, "tax_amount": {}, "total_amount": {}}"""

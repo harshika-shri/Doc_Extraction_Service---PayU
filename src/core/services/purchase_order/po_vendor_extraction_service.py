@@ -39,6 +39,7 @@ class POVendorExtractionService(
         payload = self._extract_payload(
             file_path,
             PO_VENDOR_PROMPT,
+            max_tokens=768,
         )
         fields = self._parse_fields(
             payload,

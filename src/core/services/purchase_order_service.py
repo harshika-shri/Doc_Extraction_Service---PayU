@@ -77,14 +77,7 @@ class PurchaseOrderService:
         "line_total",
     )
 
-    PO_LINE_ITEM_REQUIRED_FIELDS = (
-        "line_number",
-        "item_description",
-        "uom",
-        "quantity_ordered",
-        "unit_price",
-        "line_total",
-    )
+    DEFAULT_PO_UOM = "EA"
 
     def __init__(
         self,
@@ -227,6 +220,25 @@ class PurchaseOrderService:
         payload = self._build_payload(
             extraction,
         )
+
+        if not payload.line_items:
+            if extraction.line_items:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Purchase order line items were extracted "
+                        "but could not be saved. Check quantity, "
+                        "unit price, and line total values."
+                    ),
+                )
+
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "No purchase order line items were extracted "
+                    "from the document."
+                ),
+            )
 
         purchase_order = (
             await self.save_extracted_purchase_order(
@@ -381,9 +393,12 @@ class PurchaseOrderService:
 
         line_items: list[dict] = []
 
-        for line_item in extraction.line_items:
+        for index, line_item in enumerate(
+            extraction.line_items,
+        ):
             line_values = self._build_line_item_values(
                 line_item,
+                index=index,
             )
 
             if line_values is not None:
@@ -399,16 +414,136 @@ class PurchaseOrderService:
     def _build_line_item_values(
         self,
         line_item: POLineItemExtractionSchema,
+        *,
+        index: int,
     ) -> dict | None:
-        if not all(
-            getattr(line_item, field_name) is not None
-            for field_name in self.PO_LINE_ITEM_REQUIRED_FIELDS
+        line_number = (
+            line_item.line_number
+            if line_item.line_number is not None
+            else index + 1
+        )
+        quantity = line_item.quantity_ordered
+        unit_price = line_item.unit_price
+        line_total = line_item.line_total
+        tax_details = normalize_tax_details(
+            line_item.tax_details,
+        )
+        item_description = (
+            line_item.item_description
+            or line_item.item_code
+        )
+
+        has_content = any(
+            [
+                item_description,
+                line_item.item_code,
+                quantity is not None,
+                unit_price is not None,
+                line_total is not None,
+            ],
+        )
+
+        if not has_content:
+            return None
+
+        if (
+            line_total is None
+            and quantity is not None
+            and unit_price is not None
+        ):
+            line_total = (
+                Decimal(
+                    str(quantity),
+                )
+                * Decimal(
+                    str(unit_price),
+                )
+            )
+
+        if (
+            quantity is None
+            and line_total is not None
+            and unit_price is not None
+            and unit_price != 0
+        ):
+            quantity = (
+                Decimal(
+                    str(line_total),
+                )
+                / Decimal(
+                    str(unit_price),
+                )
+            )
+
+        if (
+            unit_price is None
+            and line_total is not None
+            and quantity is not None
+            and quantity != 0
+        ):
+            unit_price = (
+                Decimal(
+                    str(line_total),
+                )
+                / Decimal(
+                    str(quantity),
+                )
+            )
+
+        if quantity is None:
+            quantity = Decimal(
+                "1",
+            )
+
+        if (
+            unit_price is None
+            and line_total is not None
+        ):
+            unit_price = (
+                Decimal(
+                    str(line_total),
+                )
+                / quantity
+            )
+
+        if (
+            line_total is None
+            and unit_price is not None
+        ):
+            line_total = (
+                quantity
+                * unit_price
+            )
+
+        if (
+            line_total is None
+            or unit_price is None
         ):
             return None
 
-        line_values: dict = {}
+        if not item_description:
+            item_description = (
+                f"Line {line_number}"
+            )
+
+        uom = (
+            line_item.uom
+            or self.DEFAULT_PO_UOM
+        )
+
+        line_values: dict = {
+            "line_number": line_number,
+            "item_description": item_description,
+            "uom": uom,
+            "quantity_ordered": quantity,
+            "unit_price": unit_price,
+            "line_total": line_total,
+        }
 
         for field_name in self.PO_LINE_ITEM_FIELDS:
+            if field_name in line_values:
+                continue
+
             value = getattr(
                 line_item,
                 field_name,
@@ -418,9 +553,7 @@ class PurchaseOrderService:
                 if field_name == "tax_details":
                     line_values[
                         field_name
-                    ] = normalize_tax_details(
-                        value,
-                    )
+                    ] = tax_details
                 else:
                     line_values[
                         field_name
@@ -431,7 +564,21 @@ class PurchaseOrderService:
                 "0",
             )
 
+        if tax_details is not None:
+            line_values["tax_details"] = tax_details
+
         return line_values
+
+    def normalize_line_item(
+        self,
+        line_item: POLineItemExtractionSchema,
+        *,
+        index: int,
+    ) -> dict | None:
+        return self._build_line_item_values(
+            line_item,
+            index=index,
+        )
 
     async def list_purchase_orders(
         self,

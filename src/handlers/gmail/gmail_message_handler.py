@@ -5,6 +5,10 @@ from typing import Any
 from googleapiclient.discovery import Resource
 from googleapiclient.errors import HttpError
 
+from src.core.exceptions.gmail_exc import (
+    GmailHistoryStaleError,
+)
+
 from src.schemas.gmail_message_schema import (
     GmailAttachmentSchema,
     GmailMessageSchema,
@@ -96,13 +100,105 @@ class GmailMessageHandler:
             if error.resp.status == 404:
                 print(
                     "Gmail history ID is stale. "
-                    "Skipping backlog fetch.",
+                    "A mailbox resync is required before "
+                    "processing new mail.",
                 )
-                return []
+                raise GmailHistoryStaleError(
+                    "Gmail history cursor is stale.",
+                ) from error
 
             raise
 
         return message_ids
+
+    def get_inbox_message_ids_for_recovery(
+        self,
+        *,
+        max_results: int = 100,
+    ) -> list[str]:
+        message_ids: list[str] = []
+        page_token: str | None = None
+
+        while len(
+            message_ids,
+        ) < max_results:
+            request_kwargs: dict[
+                str,
+                Any,
+            ] = {
+                "userId": "me",
+                "labelIds": [
+                    "INBOX",
+                ],
+                "maxResults": min(
+                    50,
+                    max_results
+                    - len(
+                        message_ids,
+                    ),
+                ),
+            }
+
+            if page_token is not None:
+                request_kwargs[
+                    "pageToken"
+                ] = page_token
+
+            response = (
+                self.service.users()
+                .messages()
+                .list(
+                    **request_kwargs,
+                )
+                .execute()
+            )
+
+            for message in response.get(
+                "messages",
+                [],
+            ):
+                message_id = message.get(
+                    "id",
+                )
+
+                if (
+                    message_id
+                    and message_id
+                    not in message_ids
+                ):
+                    message_ids.append(
+                        str(
+                            message_id,
+                        ),
+                    )
+
+            page_token = response.get(
+                "nextPageToken",
+            )
+
+            if page_token is None:
+                break
+
+        message_ids.reverse()
+
+        return message_ids
+
+    def get_mailbox_history_id(
+        self,
+    ) -> int:
+        profile = (
+            self.service.users()
+            .getProfile(
+                userId="me",
+            )
+            .execute()
+        )
+
+        return int(
+            profile[
+                "historyId"
+            ],
+        )
 
     def fetch_message(
         self,

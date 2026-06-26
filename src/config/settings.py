@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     REDIS_STREAM_NAME: str = "extraction.events"
 
     CELERY_TASK_DEFAULT_QUEUE: str = "extraction"
-    CELERY_TASK_MAX_RETRIES: int = 3
+    CELERY_TASK_MAX_RETRIES: int = 5
     CELERY_TASK_RETRY_BACKOFF_SECONDS: int = 60
 
     LLAMA_CLOUD_API_KEY: str = Field(
@@ -72,7 +72,7 @@ class Settings(BaseSettings):
         validation_alias="GROQ_LLM_MODEL",
     )
     GROQ_LLM_MAX_TOKENS: int = Field(
-        default=8192,
+        default=1500,
         validation_alias="GROQ_LLM_MAX_TOKENS",
     )
 

@@ -13,6 +13,13 @@ from src.handlers.gmail.gmail_watch import (
 from src.schemas.gmail_monitoring_schema import (
     MonitoringStatusResponse,
 )
+from src.utils.gmail_history_cache import (
+    cache_last_processed_history_id,
+    set_monitoring_active,
+)
+from src.utils.gmail_notification_coordinator import (
+    clear_pending_history_id,
+)
 
 
 class GmailMonitoringService:
@@ -61,6 +68,14 @@ class GmailMonitoringService:
             await self.repo.create(
                 state,
             )
+            cache_last_processed_history_id(
+                email_address,
+                current_history_id,
+            )
+            set_monitoring_active(
+                email_address,
+                active=True,
+            )
 
             return {
                 "message": (
@@ -79,6 +94,15 @@ class GmailMonitoringService:
             ),
             is_monitoring=True,
         )
+        await self.session.commit()
+        cache_last_processed_history_id(
+            email_address,
+            state.last_processed_history_id,
+        )
+        set_monitoring_active(
+            email_address,
+            active=True,
+        )
 
         return {
             "message": (
@@ -86,6 +110,9 @@ class GmailMonitoringService:
             ),
             "history_id": str(
                 current_history_id,
+            ),
+            "stored_history_id": str(
+                state.last_processed_history_id,
             ),
         }
 
@@ -119,6 +146,14 @@ class GmailMonitoringService:
             state=state,
             history_id=last_processed_history_id,
             is_monitoring=False,
+        )
+        await self.session.commit()
+        set_monitoring_active(
+            email_address,
+            active=False,
+        )
+        clear_pending_history_id(
+            email_address,
         )
 
         return {
