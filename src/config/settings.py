@@ -76,6 +76,15 @@ class Settings(BaseSettings):
         validation_alias="GROQ_LLM_MAX_TOKENS",
     )
 
+    SENDGRID_API_KEY: str = Field(
+        default="",
+        validation_alias="SENDGRID_API_KEY",
+    )
+    SENDGRID_FROM_EMAIL: str = Field(
+        default="",
+        validation_alias="SENDGRID_FROM_EMAIL",
+    )
+
     @field_validator(
         "LLAMA_CLOUD_API_KEY",
         "LLAMA_CLOUD_PROJECT_ID",

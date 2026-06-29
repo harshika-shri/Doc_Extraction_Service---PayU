@@ -26,6 +26,7 @@ from src.utils.extraction_field_utils import (
 class InvoiceHeaderExtractionResult:
     invoice_number: str | None
     invoice_date: Any
+    due_date: Any
     po_number: str | None
     subtotal_amount: Any
     tax_amount: Any
@@ -56,6 +57,9 @@ class InvoiceHeaderExtractionService(
             invoice_date=fields[
                 "invoice_date"
             ].value,
+            due_date=fields[
+                "due_date"
+            ].value,
             po_number=fields[
                 "po_number"
             ].value,
@@ -75,6 +79,9 @@ class InvoiceHeaderExtractionService(
                     ],
                     "invoice_date": fields[
                         "invoice_date"
+                    ],
+                    "due_date": fields[
+                        "due_date"
                     ],
                     "po_number": fields[
                         "po_number"
@@ -105,6 +112,11 @@ class InvoiceHeaderExtractionService(
             "invoice_date": parse_date_field(
                 payload.get(
                     "invoice_date",
+                ),
+            ),
+            "due_date": parse_date_field(
+                payload.get(
+                    "due_date",
                 ),
             ),
             "po_number": parse_string_field(

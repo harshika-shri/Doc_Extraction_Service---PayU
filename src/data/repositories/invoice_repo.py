@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy import func, or_, select
 
 from src.data.models.postgres.company_master import CompanyMaster
@@ -10,6 +12,11 @@ from src.data.repositories.base_repo import BaseRepository
 
 
 class InvoiceRepository(BaseRepository):
+    async def get_by_id(self, invoice_id: UUID) -> Invoice | None:
+        stmt = select(Invoice).where(Invoice.id == invoice_id)
+        result = await self.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def exists_for_gcs_file_path(
         self,
         gcs_file_path: str,

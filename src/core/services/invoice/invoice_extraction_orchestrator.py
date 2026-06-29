@@ -70,6 +70,7 @@ class InvoiceExtractionOrchestrator:
         extraction = InvoiceExtractionSchema(
             invoice_number=header.invoice_number,
             invoice_date=header.invoice_date,
+            due_date=header.due_date,
             po_numbers_extracted=po_numbers_extracted,
             subtotal_amount=header.subtotal_amount,
             tax_amount=header.tax_amount,

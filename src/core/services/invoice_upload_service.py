@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 from src.config.settings import settings
 from src.constants.document_type import DocumentType
+from src.core.exceptions.client_cancelled_exc import (
+    ClientCancelledError,
+)
 from src.core.exceptions.llm_exc import LLMServiceError
 from src.core.services.document_classifier_service import (
     DocumentClassifierService,
@@ -35,6 +40,9 @@ from src.utils.file_utils import (
     is_processable_attachment,
     save_uploaded_file,
 )
+from src.utils.request_cancellation import (
+    ensure_client_connected,
+)
 
 _INVOICE_UPLOAD_DIR = "uploads/invoices"
 _UPLOAD_FILENAME_PREFIX = "invoice"
@@ -59,6 +67,7 @@ class InvoiceUploadService:
     async def upload_and_process(
         self,
         file: UploadFile,
+        request: Request | None = None,
     ) -> InvoiceUploadResponse:
         filename = file.filename or "upload"
 
@@ -84,21 +93,29 @@ class InvoiceUploadService:
         )
 
         try:
+            await ensure_client_connected(request)
             return await self._classify_and_extract(
                 file_path=file_path,
                 original_filename=filename,
+                request=request,
             )
+        except ClientCancelledError:
+            if file_path.exists():
+                file_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=499,
+                detail="Upload cancelled.",
+            ) from None
         except Exception:
             if file_path.exists():
-                file_path.unlink(
-                    missing_ok=True,
-                )
+                file_path.unlink(missing_ok=True)
             raise
 
     async def _classify_and_extract(
         self,
         file_path: Path,
         original_filename: str,
+        request: Request | None = None,
     ) -> InvoiceUploadResponse:
         print(
             "\n"
@@ -128,11 +145,12 @@ class InvoiceUploadService:
                     message="Invoice already processed.",
                 )
 
+        await ensure_client_connected(request)
+
         try:
-            classification = (
-                self.classifier_service.classify_document(
-                    file_path,
-                )
+            classification = await asyncio.to_thread(
+                self.classifier_service.classify_document,
+                file_path,
             )
         except LLMServiceError as exc:
             raise HTTPException(
@@ -164,11 +182,12 @@ class InvoiceUploadService:
                 ),
             )
 
+        await ensure_client_connected(request)
+
         try:
-            extraction_result = (
-                self.extraction_service.extract_invoice_with_confidence(
-                    file_path,
-                )
+            extraction_result = await asyncio.to_thread(
+                self.extraction_service.extract_invoice_with_confidence,
+                file_path,
             )
         except LLMServiceError as exc:
             raise HTTPException(
@@ -181,6 +200,8 @@ class InvoiceUploadService:
                 extraction_result.confidence_records,
             )
         )
+
+        await ensure_client_connected(request)
 
         invoice = (
             await self.invoice_service.save_extracted_invoice(
