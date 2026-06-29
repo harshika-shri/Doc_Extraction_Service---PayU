@@ -111,17 +111,62 @@ class GmailMessageHandler:
 
         return message_ids
 
+    def sort_message_ids_by_arrival(
+        self,
+        message_ids: list[str],
+    ) -> list[str]:
+        if len(message_ids) <= 1:
+            return message_ids
+
+        dated: list[
+            tuple[
+                int,
+                str,
+            ]
+        ] = []
+
+        for message_id in message_ids:
+            metadata = (
+                self.service.users()
+                .messages()
+                .get(
+                    userId="me",
+                    id=message_id,
+                    format="metadata",
+                    metadataHeaders=[],
+                )
+                .execute()
+            )
+            dated.append(
+                (
+                    int(
+                        metadata.get(
+                            "internalDate",
+                            0,
+                        ),
+                    ),
+                    message_id,
+                ),
+            )
+
+        dated.sort(
+            key=lambda item: item[0],
+        )
+
+        return [
+            message_id
+            for _, message_id in dated
+        ]
+
     def get_inbox_message_ids_for_recovery(
         self,
         *,
-        max_results: int = 100,
+        max_results: int | None = None,
     ) -> list[str]:
         message_ids: list[str] = []
         page_token: str | None = None
 
-        while len(
-            message_ids,
-        ) < max_results:
+        while True:
             request_kwargs: dict[
                 str,
                 Any,
@@ -130,13 +175,7 @@ class GmailMessageHandler:
                 "labelIds": [
                     "INBOX",
                 ],
-                "maxResults": min(
-                    50,
-                    max_results
-                    - len(
-                        message_ids,
-                    ),
-                ),
+                "maxResults": 50,
             }
 
             if page_token is not None:
@@ -179,9 +218,16 @@ class GmailMessageHandler:
             if page_token is None:
                 break
 
-        message_ids.reverse()
+            if (
+                max_results is not None
+                and len(message_ids)
+                >= max_results
+            ):
+                break
 
-        return message_ids
+        return self.sort_message_ids_by_arrival(
+            message_ids,
+        )
 
     def get_mailbox_history_id(
         self,

@@ -30,6 +30,9 @@ from src.data.repositories.invoice_repo import (
 from src.data.repositories.invoice_validation_issue_repo import (
     InvoiceValidationIssueRepository,
 )
+from src.data.repositories.processed_gmail_message_repo import (
+    ProcessedGmailMessageRepository,
+)
 from src.schemas.extraction_persistence_schema import (
     ConfidenceRecordPayload,
     ExtractedInvoicePayload,
@@ -81,6 +84,11 @@ class InvoiceService:
                 session,
             )
         )
+        self.processed_gmail_message_repo = (
+            ProcessedGmailMessageRepository(
+                session,
+            )
+        )
 
     async def attachment_already_processed(
         self,
@@ -94,6 +102,16 @@ class InvoiceService:
         self,
         gmail_message_id: str,
     ) -> bool:
+        if await self.processed_gmail_message_repo.exists(
+            gmail_message_id,
+        ):
+            return True
+
+        if await self.invoice_email_repo.exists_for_message_id(
+            gmail_message_id,
+        ):
+            return True
+
         return await self.invoice_repo.exists_for_gmail_message_id(
             gmail_message_id,
         )

@@ -19,6 +19,7 @@ from src.utils.gmail_history_cache import (
 )
 from src.utils.gmail_notification_coordinator import (
     clear_pending_history_id,
+    force_release_gmail_worker,
 )
 
 
@@ -151,6 +152,9 @@ class GmailMonitoringService:
         set_monitoring_active(
             email_address,
             active=False,
+        )
+        force_release_gmail_worker(
+            email_address,
         )
         clear_pending_history_id(
             email_address,

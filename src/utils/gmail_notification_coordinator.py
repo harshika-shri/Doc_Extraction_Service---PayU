@@ -225,6 +225,21 @@ def resolve_target_history_id(
     )
 
 
+def force_release_gmail_worker(
+    email_address: str,
+) -> None:
+    client = _redis_client()
+
+    try:
+        client.delete(
+            _worker_active_key(
+                email_address,
+            ),
+        )
+    finally:
+        client.close()
+
+
 def release_gmail_worker(
     email_address: str,
 ) -> int | None:

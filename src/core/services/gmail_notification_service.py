@@ -24,6 +24,9 @@ from src.data.models.postgres.gmail_monitoring_state import (
 from src.data.repositories.gmail_monitoring_repo import (
     GmailMonitoringRepository,
 )
+from src.data.repositories.processed_gmail_message_repo import (
+    ProcessedGmailMessageRepository,
+)
 from src.handlers.gmail.gmail_client import (
     GmailClient,
 )
@@ -229,6 +232,12 @@ class GmailNotificationService:
                 f"message_ids={len(message_ids)}",
             )
 
+            message_ids = (
+                message_handler.sort_message_ids_by_arrival(
+                    message_ids,
+                )
+            )
+
             return await self._process_message_ids(
                 email_address=email_address,
                 message_ids=message_ids,
@@ -303,13 +312,29 @@ class GmailNotificationService:
         invoice_service = InvoiceService(
             self.session,
         )
+        processed_message_repo = (
+            ProcessedGmailMessageRepository(
+                self.session,
+            )
+        )
         processed_messages: list[
             GmailMessageSchema
         ] = []
         had_failures = False
         had_deferred = False
+        monitoring_stopped = False
 
         for message_id in message_ids:
+            if not await self._is_monitoring_active(
+                email_address,
+            ):
+                monitoring_stopped = True
+                print(
+                    "Stopping Gmail message processing "
+                    "because monitoring is inactive.",
+                )
+                break
+
             if is_gmail_message_processed(
                 message_id,
             ):
@@ -322,6 +347,10 @@ class GmailNotificationService:
             if await invoice_service.message_already_processed(
                 message_id,
             ):
+                await processed_message_repo.mark_processed(
+                    message_id=message_id,
+                    email_address=email_address,
+                )
                 mark_gmail_message_processed(
                     message_id,
                 )
@@ -371,6 +400,10 @@ class GmailNotificationService:
                 processed_messages.append(
                     message,
                 )
+                await processed_message_repo.mark_processed(
+                    message_id=message_id,
+                    email_address=email_address,
+                )
                 mark_gmail_message_processed(
                     message_id,
                 )
@@ -416,11 +449,19 @@ class GmailNotificationService:
         if refreshed_state is None:
             return processed_messages
 
-        if had_failures or had_deferred:
+        if (
+            had_failures
+            or had_deferred
+            or monitoring_stopped
+        ):
             reason = (
-                "one or more messages failed to process"
-                if had_failures
-                else "one or more messages are still being processed"
+                "monitoring was stopped"
+                if monitoring_stopped
+                else (
+                    "one or more messages failed to process"
+                    if had_failures
+                    else "one or more messages are still being processed"
+                )
             )
             print(
                 "Gmail history cursor not advanced "
@@ -436,10 +477,12 @@ class GmailNotificationService:
         ):
             return processed_messages
 
+        await self.session.commit()
+
         await self._advance_history_cursor(
             state=refreshed_state,
             history_id=end_history_id,
-            is_monitoring=is_monitoring,
+            is_monitoring=refreshed_state.is_monitoring,
         )
         clear_pending_history_id(
             email_address,
@@ -447,6 +490,19 @@ class GmailNotificationService:
         )
 
         return processed_messages
+
+    async def _is_monitoring_active(
+        self,
+        email_address: str,
+    ) -> bool:
+        state = await self.repo.get_by_email(
+            email_address,
+        )
+
+        return (
+            state is not None
+            and state.is_monitoring
+        )
 
     async def _advance_history_cursor(
         self,
