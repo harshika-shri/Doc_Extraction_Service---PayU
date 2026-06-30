@@ -54,6 +54,21 @@ class InvoiceEmailRepository(BaseRepository):
 
         return result.scalar_one_or_none()
 
+    async def get_by_message_id(
+        self,
+        message_id: str,
+    ) -> InvoiceEmail | None:
+        stmt = select(
+            InvoiceEmail,
+        ).where(
+            InvoiceEmail.message_id
+            == message_id,
+        )
+
+        result = await self.execute(stmt)
+
+        return result.scalar_one_or_none()
+
     async def create(
         self,
         invoice_id: UUID,
