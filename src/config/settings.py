@@ -59,6 +59,18 @@ class Settings(BaseSettings):
         validation_alias="LLAMA_EXTRACT_POLL_MAX_ATTEMPTS",
     )
 
+    GEMINI_API_KEY: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "GEMINI_API_KEY",
+            "GOOGLE_STUDIO_API_KEY",
+        ),
+    )
+    GEMINI_MODEL: str = Field(
+        default="gemini-2.5-flash-lite",
+        validation_alias="GEMINI_MODEL",
+    )
+
     GROQ_API_KEY: str = Field(
         default="",
         validation_alias="GROQ_API_KEY",
@@ -88,6 +100,7 @@ class Settings(BaseSettings):
     @field_validator(
         "LLAMA_CLOUD_API_KEY",
         "LLAMA_CLOUD_PROJECT_ID",
+        "GEMINI_API_KEY",
         "GROQ_API_KEY",
         mode="before",
     )
