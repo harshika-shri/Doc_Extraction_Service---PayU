@@ -22,7 +22,11 @@ from src.schemas.po_extraction_schema import (
     POVendorExtractionSchema,
 )
 from src.utils.extraction_field_utils import (
+    ParsedField,
     collect_confidence_records,
+)
+from src.utils.party_reconciliation import (
+    reconcile_po_parties,
 )
 
 
@@ -44,6 +48,30 @@ def build_po_extraction_result(
             payload,
         )
     )
+    buyer_name, buyer_gstin, vendor_fields = reconcile_po_parties(
+        buyer_name=company_fields[
+            "buyer_company_name"
+        ].value,
+        buyer_gstin=company_fields[
+            "buyer_company_gstin"
+        ].value,
+        vendor_fields=vendor_fields,
+    )
+    company_fields = {
+        **company_fields,
+        "buyer_company_name": ParsedField(
+            value=buyer_name,
+            confidence=company_fields[
+                "buyer_company_name"
+            ].confidence,
+        ),
+        "buyer_company_gstin": ParsedField(
+            value=buyer_gstin,
+            confidence=company_fields[
+                "buyer_company_gstin"
+            ].confidence,
+        ),
+    }
     line_item_service = (
         POLineItemExtractionService()
     )

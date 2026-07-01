@@ -1,3 +1,6 @@
+from src.constants.prompts.party_assignment_rules import (
+    PARTY_ASSIGNMENT_RULES,
+)
 from src.constants.prompts.po_company_prompt import (
     PO_COMPANY_PROMPT,
 )
@@ -12,6 +15,8 @@ from src.constants.prompts.po_vendor_prompt import (
 )
 
 PO_GEMINI_EXTRACTION_PROMPT = f"""
+{PARTY_ASSIGNMENT_RULES}
+
 Extract all purchase order data from the attached document in one response.
 
 Apply the same field rules from each section below and return a single JSON object

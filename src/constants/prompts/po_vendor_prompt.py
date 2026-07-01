@@ -1,4 +1,10 @@
-PO_VENDOR_PROMPT = """Extract vendor (supplier/seller) and bank details from the purchase order image.
+PO_VENDOR_PROMPT = """Extract vendor (supplier / seller) details from the purchase order.
+
+Source locations ONLY:
+- Top header, logo, and letterhead block
+- Supplier company block above the PO title
+
+Do NOT use Bill To, Ship To, or buyer sections for any vendor_* field.
 
 For each field, return {"value": <extracted>, "confidence": <0-100>} if present, or null if absent.
 Confidence: 100=clear, lower only when text is blurry/ambiguous/partial. Missing fields are NOT low-confidence.

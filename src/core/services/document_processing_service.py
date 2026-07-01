@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants.document_type import DocumentType
@@ -29,6 +31,8 @@ from src.utils.file_utils import (
     delete_attachment_file,
     is_processable_attachment,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentProcessingService:
@@ -170,6 +174,17 @@ class DocumentProcessingService:
         ):
             queue_extraction_completed(
                 invoice.id,
+            )
+            logger.info(
+                "Queued extraction.completed event invoice_id=%s",
+                invoice.id,
+            )
+        else:
+            logger.info(
+                "Extraction requires human review before validation; "
+                "invoice_id=%s status=%s",
+                invoice.id,
+                invoice.extraction_status.value,
             )
 
         print(

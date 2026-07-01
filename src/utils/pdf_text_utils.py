@@ -22,33 +22,36 @@ def extract_embedded_pdf_text(
         return ""
 
     try:
-        import fitz
+        import pdfplumber
     except ImportError as error:
         raise LLMServiceError(
-            "PyMuPDF is required to extract PDF text.",
+            "pdfplumber is required to extract PDF text.",
             provider="groq",
             status_code=500,
         ) from error
 
     text_parts: list[str] = []
 
-    with fitz.open(
-        file_path,
-    ) as document:
-        for page_index in range(
-            len(document),
-        ):
-            page = document.load_page(
-                page_index,
-            )
-            page_text = page.get_text(
-                "text",
-            ).strip()
+    try:
+        with pdfplumber.open(
+            file_path,
+        ) as document:
+            for page in document.pages:
+                page_text = (
+                    page.extract_text()
+                    or ""
+                ).strip()
 
-            if page_text:
-                text_parts.append(
-                    page_text,
-                )
+                if page_text:
+                    text_parts.append(
+                        page_text,
+                    )
+    except Exception as error:
+        raise LLMServiceError(
+            f"Failed to extract PDF text: {error}",
+            provider="groq",
+            status_code=500,
+        ) from error
 
     return _WHITESPACE_PATTERN.sub(
         " ",

@@ -141,6 +141,7 @@ def flush_extraction_events() -> None:
         return
 
     publisher = get_redis_stream_publisher()
+    failed_invoice_ids: list[UUID] = []
 
     for invoice_id in pending:
         logger.info(
@@ -161,7 +162,16 @@ def flush_extraction_events() -> None:
                 EXTRACTION_EVENT_COMPLETED,
                 invoice_id,
             )
+            failed_invoice_ids.append(
+                invoice_id,
+            )
 
     _pending_extraction_events.set(
         [],
     )
+
+    if failed_invoice_ids:
+        raise RuntimeError(
+            "Failed to publish extraction events for invoices: "
+            f"{failed_invoice_ids}",
+        )

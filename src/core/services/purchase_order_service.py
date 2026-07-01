@@ -10,9 +10,6 @@ from starlette.requests import Request
 
 from src.config.settings import settings
 from src.constants.document_type import DocumentType
-from src.core.exceptions.client_cancelled_exc import (
-    ClientCancelledError,
-)
 from src.core.exceptions.llm_exc import LLMServiceError
 from src.core.exceptions.vendor_master_exc import (
     VendorMasterOnboardingError,
@@ -64,9 +61,6 @@ from src.schemas.purchase_order_schema import (
 )
 from src.utils.file_utils import (
     save_uploaded_file,
-)
-from src.utils.request_cancellation import (
-    ensure_client_connected,
 )
 from src.utils.tax_details_utils import (
     normalize_tax_details,
@@ -137,8 +131,6 @@ class PurchaseOrderService:
         )
 
         try:
-            await ensure_client_connected(request)
-
             purchase_order, line_items_saved, line_items_payload, vendor_name, vendor_email = (
                 await self.process_saved_purchase_order(
                     file_path=str(
@@ -146,11 +138,8 @@ class PurchaseOrderService:
                     ),
                     company_id=current_user.company_id,
                     uploaded_by=current_user.id,
-                    request=request,
                 )
             )
-
-            await ensure_client_connected(request)
 
             if line_items_saved > 0:
                 await self.vendor_notification_service.notify_vendor_invoice_required(
@@ -169,15 +158,6 @@ class PurchaseOrderService:
                 gcs_file_path=purchase_order.gcs_file_path,
                 line_items_saved=line_items_saved,
             )
-        except ClientCancelledError:
-            if file_path.exists() and not await self.file_already_processed(
-                str(file_path),
-            ):
-                file_path.unlink(missing_ok=True)
-            raise HTTPException(
-                status_code=499,
-                detail="Upload cancelled.",
-            ) from None
         except Exception:
             if file_path.exists() and not await self.file_already_processed(
                 str(file_path),
@@ -205,7 +185,6 @@ class PurchaseOrderService:
         file_path: str,
         company_id: UUID,
         uploaded_by: UUID,
-        request: Request | None = None,
     ) -> tuple[
         PurchaseOrder,
         int,
@@ -246,8 +225,6 @@ class PurchaseOrderService:
 
             return existing, 0, [], None, None
 
-        await ensure_client_connected(request)
-
         try:
             classification = await asyncio.to_thread(
                 self.classifier_service.classify_document,
@@ -267,8 +244,6 @@ class PurchaseOrderService:
                         f"{classification.document_type.value}."
                     ),
                 )
-
-            await ensure_client_connected(request)
 
             extraction = await asyncio.to_thread(
                 self.po_extraction_service.extract_purchase_order,
@@ -302,8 +277,6 @@ class PurchaseOrderService:
                     "from the document."
                 ),
             )
-
-        await ensure_client_connected(request)
 
         purchase_order, vendor_master = (
             await self.save_extracted_purchase_order(

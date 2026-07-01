@@ -21,6 +21,9 @@ from src.schemas.extraction_persistence_schema import (
 from src.schemas.invoice_extraction_schema import (
     InvoiceExtractionSchema,
 )
+from src.utils.po_number_utils import (
+    parse_po_number_header_value,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,10 +64,8 @@ class InvoiceExtractionOrchestrator:
             file_path,
         )
 
-        po_numbers_extracted = (
-            [header.po_number]
-            if header.po_number
-            else None
+        po_numbers_extracted = parse_po_number_header_value(
+            header.po_number,
         )
 
         extraction = InvoiceExtractionSchema(

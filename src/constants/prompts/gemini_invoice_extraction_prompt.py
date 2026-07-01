@@ -1,3 +1,6 @@
+from src.constants.prompts.party_assignment_rules import (
+    PARTY_ASSIGNMENT_RULES,
+)
 from src.constants.prompts.invoice_company_prompt import (
     INVOICE_COMPANY_PROMPT,
 )
@@ -12,6 +15,8 @@ from src.constants.prompts.invoice_vendor_prompt import (
 )
 
 INVOICE_GEMINI_EXTRACTION_PROMPT = f"""
+{PARTY_ASSIGNMENT_RULES}
+
 Extract all invoice data from the attached document in one response.
 
 Apply the same field rules from each section below and return a single JSON object

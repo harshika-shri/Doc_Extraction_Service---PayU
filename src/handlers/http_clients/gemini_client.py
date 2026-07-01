@@ -43,15 +43,71 @@ class GeminiClient:
         )
         self._validate_configuration()
 
-        request_body = self._build_request_body(
+        request_body = self._build_document_request_body(
             file_path=file_path,
             prompt=prompt,
             max_output_tokens=max_output_tokens,
         )
 
-        response_payload = self._post_generate_content(
+        return self._request_json_payload(
             request_body=request_body,
             model=selected_model,
+            timeout=timeout,
+            error_context="extraction",
+        )
+
+    def generate_json_from_text(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        max_output_tokens: int = 4096,
+        timeout: int = 60,
+    ) -> dict[str, Any]:
+        selected_model = (
+            model or settings.GEMINI_MODEL
+        )
+        self._validate_configuration()
+
+        request_body = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": (
+                                f"{prompt}\n\n"
+                                "Return valid JSON only."
+                            ),
+                        },
+                    ],
+                },
+            ],
+            "generationConfig": {
+                "temperature": 0,
+                "maxOutputTokens": max_output_tokens,
+                "responseMimeType": "application/json",
+            },
+        }
+
+        return self._request_json_payload(
+            request_body=request_body,
+            model=selected_model,
+            timeout=timeout,
+            error_context="text generation",
+        )
+
+    def _request_json_payload(
+        self,
+        *,
+        request_body: dict[str, Any],
+        model: str,
+        timeout: int,
+        error_context: str,
+    ) -> dict[str, Any]:
+        response_payload = self._post_generate_content(
+            request_body=request_body,
+            model=model,
             timeout=timeout,
         )
         response_text = self._extract_response_text(
@@ -66,7 +122,7 @@ class GeminiClient:
             )
         except json.JSONDecodeError as error:
             raise LLMServiceError(
-                "Gemini extraction returned invalid JSON.",
+                f"Gemini {error_context} returned invalid JSON.",
                 provider="gemini",
                 status_code=502,
             ) from error
@@ -76,7 +132,10 @@ class GeminiClient:
             dict,
         ):
             raise LLMServiceError(
-                "Gemini extraction returned a non-object JSON payload.",
+                (
+                    f"Gemini {error_context} returned a "
+                    "non-object JSON payload."
+                ),
                 provider="gemini",
                 status_code=502,
             )
@@ -90,7 +149,7 @@ class GeminiClient:
                 provider="gemini",
             )
 
-    def _build_request_body(
+    def _build_document_request_body(
         self,
         *,
         file_path: Path,

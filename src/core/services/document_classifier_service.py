@@ -5,6 +5,9 @@ from pathlib import Path
 from src.config.llm_config import (
     GROQ_MODEL_CLASSIFY,
 )
+from src.constants.document_format import (
+    DocumentFormat,
+)
 from src.constants.document_type import (
     DocumentType,
 )
@@ -46,6 +49,10 @@ class DocumentClassifierService(
         print(
             f"Type: {classification.document_type}",
         )
+        print(
+            "Format: "
+            f"{classification.document_format or 'n/a'}",
+        )
 
         if classification.reason:
             print(
@@ -62,3 +69,15 @@ class DocumentClassifierService(
             DocumentType.INVOICE,
             DocumentType.PURCHASE_ORDER,
         }
+
+    @staticmethod
+    def resolved_document_format(
+        classification: DocumentClassificationSchema,
+    ) -> DocumentFormat:
+        if (
+            classification.document_format
+            is not None
+        ):
+            return classification.document_format
+
+        return DocumentFormat.SCANNED

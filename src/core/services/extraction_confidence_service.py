@@ -3,11 +3,13 @@ from decimal import Decimal
 from typing import Any
 
 from src.config.llm_config import (
-    GROQ_MODEL_CONFIDENCE,
     LOW_CONFIDENCE_THRESHOLD,
 )
 from src.constants.llm_prompt_constants import (
     CONFIDENCE_SCORE_PROMPT,
+)
+from src.handlers.http_clients.gemini_client import (
+    GeminiClient,
 )
 from src.schemas.extraction_confidence_schema import (
     ExtractionConfidenceResponse,
@@ -18,13 +20,19 @@ from src.schemas.extraction_persistence_schema import (
 from src.schemas.invoice_extraction_schema import (
     InvoiceExtractionSchema,
 )
-from src.utils.llm_response_utils import (
-    call_groq_llm,
-    parse_llm_model,
-)
 
 
 class ExtractionConfidenceService:
+    def __init__(
+        self,
+        *,
+        gemini_client: GeminiClient | None = None,
+    ) -> None:
+        self.gemini_client = (
+            gemini_client
+            or GeminiClient()
+        )
+
     def score_invoice_extraction(
         self,
         extraction: InvoiceExtractionSchema,
@@ -46,14 +54,13 @@ class ExtractionConfidenceService:
             f"{json.dumps(field_values, default=str)}"
         )
 
-        response_text = call_groq_llm(
-            prompt,
-            model=GROQ_MODEL_CONFIDENCE,
-            max_tokens=1024,
-        )
-        confidence_response = parse_llm_model(
-            response_text,
-            ExtractionConfidenceResponse,
+        confidence_response = (
+            ExtractionConfidenceResponse.model_validate(
+                self.gemini_client.generate_json_from_text(
+                    prompt,
+                    max_output_tokens=1024,
+                ),
+            )
         )
 
         records: list[
@@ -109,11 +116,13 @@ class ExtractionConfidenceService:
         header_fields = {
             "invoice_number": extraction.invoice_number,
             "invoice_date": extraction.invoice_date,
+            "due_date": extraction.due_date,
             "total_amount": extraction.total_amount,
             "tax_amount": extraction.tax_amount,
             "subtotal_amount": extraction.subtotal_amount,
             "company_name": extraction.company_name,
             "company_gstin": extraction.company_gstin,
+            "company_address": extraction.company_address,
             "currency": extraction.currency,
         }
 
@@ -123,11 +132,21 @@ class ExtractionConfidenceService:
                     field_name
                 ] = value
 
+        if extraction.po_numbers_extracted:
+            summary[
+                "po_numbers_extracted"
+            ] = extraction.po_numbers_extracted
+
         if extraction.vendor is not None:
             vendor_fields = {
                 "vendor.vendor_name": extraction.vendor.vendor_name,
                 "vendor.vendor_gstin": extraction.vendor.vendor_gstin,
                 "vendor.vendor_email": extraction.vendor.vendor_email,
+                "vendor.vendor_phone": extraction.vendor.vendor_phone,
+                "vendor.bank_account_number": (
+                    extraction.vendor.bank_account_number
+                ),
+                "vendor.ifsc_code": extraction.vendor.ifsc_code,
             }
 
             for field_name, value in vendor_fields.items():

@@ -22,7 +22,14 @@ from src.schemas.invoice_extraction_schema import (
     InvoiceVendorExtractionSchema,
 )
 from src.utils.extraction_field_utils import (
+    ParsedField,
     collect_confidence_records,
+)
+from src.utils.po_number_utils import (
+    parse_po_number_header_value,
+)
+from src.utils.party_reconciliation import (
+    reconcile_invoice_parties,
 )
 
 
@@ -44,6 +51,41 @@ def build_invoice_extraction_result(
             payload,
         )
     )
+    buyer_name, buyer_gstin, buyer_address, vendor_result = (
+        reconcile_invoice_parties(
+            buyer_name=company_fields[
+                "buyer_company_name"
+            ].value,
+            buyer_gstin=company_fields[
+                "buyer_company_gstin"
+            ].value,
+            buyer_address=company_fields[
+                "buyer_company_address"
+            ].value,
+            vendor_fields=vendor_result,
+        )
+    )
+    company_fields = {
+        **company_fields,
+        "buyer_company_name": ParsedField(
+            value=buyer_name,
+            confidence=company_fields[
+                "buyer_company_name"
+            ].confidence,
+        ),
+        "buyer_company_gstin": ParsedField(
+            value=buyer_gstin,
+            confidence=company_fields[
+                "buyer_company_gstin"
+            ].confidence,
+        ),
+        "buyer_company_address": ParsedField(
+            value=buyer_address,
+            confidence=company_fields[
+                "buyer_company_address"
+            ].confidence,
+        ),
+    }
     line_item_service = (
         InvoiceLineItemExtractionService()
     )
@@ -67,13 +109,10 @@ def build_invoice_extraction_result(
             **vendor_values,
         )
 
-    po_number = header_fields[
-        "po_number"
-    ].value
-    po_numbers_extracted = (
-        [po_number]
-        if po_number
-        else None
+    po_numbers_extracted = parse_po_number_header_value(
+        header_fields[
+            "po_number"
+        ].value,
     )
 
     extraction = InvoiceExtractionSchema(

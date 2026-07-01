@@ -67,7 +67,7 @@ class Settings(BaseSettings):
         ),
     )
     GEMINI_MODEL: str = Field(
-        default="gemini-2.5-flash-lite",
+        default="gemini-2.5-flash",
         validation_alias="GEMINI_MODEL",
     )
 
